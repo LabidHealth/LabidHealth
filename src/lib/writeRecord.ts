@@ -7,7 +7,7 @@ export async function writeRecord<T extends { id: string }>(
   table: string,
   operation: 'INSERT' | 'UPDATE' | 'DELETE',
   payload: T,
-  oldValue?: Partial<T>
+  oldValue?: Partial<T> | null
 ) {
   const dexieTable = db.table(table)
 
@@ -28,7 +28,13 @@ export async function writeRecord<T extends { id: string }>(
     attempts: 0
   } as SyncQueueItem)
 
-  await logAuditEvent(operation, table, payload.id, oldValue ?? null, payload)
+  await logAuditEvent(
+    operation,
+    table,
+    payload.id,
+    (oldValue as Record<string, unknown> | null | undefined) ?? null,
+    payload as Record<string, unknown>
+  )
 
   if (navigator.onLine) {
     void syncEngine.push()

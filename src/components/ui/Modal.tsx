@@ -13,10 +13,12 @@ export function Modal({ open, title, onClose, footer, children }: ModalProps) {
     const handle = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
     }
+
     if (open) {
       document.body.style.overflow = 'hidden'
       window.addEventListener('keydown', handle)
     }
+
     return () => {
       document.body.style.overflow = ''
       window.removeEventListener('keydown', handle)
@@ -29,11 +31,9 @@ export function Modal({ open, title, onClose, footer, children }: ModalProps) {
     <div className="modal-overlay" role="dialog" aria-modal>
       <div className="modal">
         <div className="modal-header">
-          <div>
-            {title && <h3>{title}</h3>}
-          </div>
-          <button type="button" className="btn-text" onClick={onClose}>
-            ×
+          <div>{title && <h3>{title}</h3>}</div>
+          <button type="button" className="btn-text" onClick={onClose} aria-label="Close modal">
+            x
           </button>
         </div>
         <div className="modal-body">{children}</div>

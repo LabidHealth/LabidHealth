@@ -1,50 +1,129 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { MoreVertical, Search, UserPlus, Users } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { Input, Button, EmptyState, Table, TableBody, TableCell, TableHead, TableRow } from '@/components/ui'
+import QRCode from 'qrcode'
+import { Avatar, Button, EmptyState, Input, Table, TableBody, TableCell, TableHead, TableRow } from '@/components/ui'
 import { db } from '@/lib/db'
 import { formatPhone, formatTimeAgo } from '@/lib/formatters'
-import { Users, Search } from 'lucide-react'
+import { openAndPrintPdfBlob } from '@/lib/printPdf'
+import { buildPatientSearchValue, getNameSimilarity } from '@/lib/patientSearch'
+import { supabase } from '@/lib/supabase'
+import type { Patient, PatientVisit } from '@/types'
 
 type Filter = 'today' | 'week' | 'all'
 
+interface PatientRow {
+  patient: Patient
+  totalVisits: number
+  lastVisit: string
+  searchValue: string
+}
+
+async function syncPatientsFromSupabase() {
+  if (!navigator.onLine) return
+
+  const [{ data: patients }, { data: visits }] = await Promise.all([
+    supabase.from('patients').select('*'),
+    supabase.from('patient_visits').select('*')
+  ])
+
+  if (patients) await db.patients.bulkPut(patients)
+  if (visits) await db.patient_visits.bulkPut(visits)
+}
+
+function buildRows(patients: Patient[], visits: PatientVisit[]) {
+  const visitsByLapid = visits.reduce<Record<string, PatientVisit[]>>((accumulator, visit) => {
+    accumulator[visit.lapid] = [...(accumulator[visit.lapid] ?? []), visit]
+    return accumulator
+  }, {})
+
+  return patients.map((patient) => {
+    const patientVisits = visitsByLapid[patient.lapid] ?? []
+    const lastVisit = patientVisits
+      .sort((left, right) => new Date(right.visited_at).getTime() - new Date(left.visited_at).getTime())[0]
+      ?.visited_at ?? patient.updated_at
+
+    return {
+      patient,
+      totalVisits: patientVisits.length || 1,
+      lastVisit,
+      searchValue: buildPatientSearchValue(patient)
+    }
+  })
+}
+
 export function PatientListPage() {
-  const [patients, setPatients] = useState<any[]>([])
+  const navigate = useNavigate()
+  const [rows, setRows] = useState<PatientRow[]>([])
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const [page, setPage] = useState(0)
+  const [openMenu, setOpenMenu] = useState<string | null>(null)
   const perPage = 25
-  const navigate = useNavigate()
 
   useEffect(() => {
-    db.patients.toArray().then(setPatients)
+    let mounted = true
+
+    const load = async () => {
+      const refreshLocal = async () => {
+        const [patients, visits] = await Promise.all([db.patients.toArray(), db.patient_visits.toArray()])
+        if (mounted) setRows(buildRows(patients, visits))
+      }
+
+      await refreshLocal()
+
+      if (navigator.onLine) {
+        await syncPatientsFromSupabase()
+        await refreshLocal()
+      }
+    }
+
+    void load()
+    return () => {
+      mounted = false
+    }
   }, [])
 
   const filtered = useMemo(() => {
-    const base = patients.filter((patient) => {
-      if (!search) return true
-      const lower = search.toLowerCase()
-      return (
-        patient.full_name.toLowerCase().includes(lower) ||
-        patient.lapid.toLowerCase().includes(lower) ||
-        patient.phone.includes(lower)
-      )
-    })
+    const loweredSearch = search.trim().toLowerCase()
+    const now = new Date()
+    const todayStart = new Date(now)
+    todayStart.setHours(0, 0, 0, 0)
+    const weekStart = new Date(now)
+    weekStart.setDate(now.getDate() - 7)
+    weekStart.setHours(0, 0, 0, 0)
 
-    if (filter === 'today') {
-      const today = new Date()
-      today.setHours(0, 0, 0, 0)
-      return base.filter((patient) => new Date(patient.created_at) >= today)
-    }
-    if (filter === 'week') {
-      const weekAgo = new Date()
-      weekAgo.setDate(weekAgo.getDate() - 7)
-      return base.filter((patient) => new Date(patient.created_at) >= weekAgo)
-    }
-    return base
-  }, [patients, search, filter])
+    return rows.filter((row) => {
+      const createdAt = new Date(row.patient.created_at)
+      const matchesDate =
+        filter === 'today' ? createdAt >= todayStart : filter === 'week' ? createdAt >= weekStart : true
+
+      if (!matchesDate) return false
+      if (!loweredSearch) return true
+
+      if (row.searchValue.includes(loweredSearch)) return true
+      return getNameSimilarity(row.patient.full_name, loweredSearch) >= 0.7
+    })
+  }, [filter, rows, search])
+
+  useEffect(() => {
+    setPage(0)
+  }, [filter, search])
 
   const currentPage = filtered.slice(page * perPage, page * perPage + perPage)
-  const pageCount = Math.ceil(filtered.length / perPage)
+  const pageCount = Math.max(1, Math.ceil(filtered.length / perPage))
+
+  async function handlePrintLapidCard(patient: Patient) {
+    const qrDataUrl = await QRCode.toDataURL(patient.lapid, { margin: 1, width: 256 })
+    const [{ pdf }, { LapidCardPDF }] = await Promise.all([
+      import('@react-pdf/renderer'),
+      import('@/components/pdf/LapidCardPDF')
+    ])
+    const blob = await pdf(
+      <LapidCardPDF patientName={patient.full_name} lapid={patient.lapid} qrDataUrl={qrDataUrl} />
+    ).toBlob()
+    await openAndPrintPdfBlob(blob)
+  }
 
   return (
     <section>
@@ -53,6 +132,7 @@ export function PatientListPage() {
           <h2>Patients</h2>
           <p className="list-subtitle">{filtered.length} patients registered</p>
         </div>
+
         <div className="list-actions">
           <div className="search-field">
             <Search className="header-icon" />
@@ -63,15 +143,17 @@ export function PatientListPage() {
               onChange={(event) => setSearch(event.target.value)}
             />
           </div>
-          <Button variant="primary" icon={<Users />} onClick={() => navigate('/app/patients/register')}>
+          <Button variant="primary" icon={<UserPlus />} onClick={() => navigate('/app/patients/register')}>
             Register Patient
           </Button>
         </div>
       </header>
+
       <div className="filter-row">
         {(['today', 'week', 'all'] as Filter[]).map((value) => (
           <button
             key={value}
+            type="button"
             className={`filter-chip${filter === value ? ' filter-chip--active' : ''}`}
             onClick={() => setFilter(value)}
           >
@@ -79,12 +161,17 @@ export function PatientListPage() {
           </button>
         ))}
       </div>
+
       {filtered.length === 0 ? (
         <EmptyState
-          icon="🙋"
+          icon={<Users size={40} />}
           headline="No patients yet"
           description="Register the first patient to get started."
-          cta={<Button variant="primary" onClick={() => navigate('/app/patients/register')}>Register first patient</Button>}
+          cta={
+            <Button variant="primary" onClick={() => navigate('/app/patients/register')}>
+              Register first patient
+            </Button>
+          }
         />
       ) : (
         <Table>
@@ -92,34 +179,58 @@ export function PatientListPage() {
             <tr>
               <th>Patient</th>
               <th>Phone</th>
-              <th>Last visit</th>
-              <th>Visits</th>
+              <th>Last Visit</th>
+              <th>Total Visits</th>
               <th>Consent</th>
               <th>Actions</th>
             </tr>
           </TableHead>
           <TableBody>
-            {currentPage.map((patient) => (
-              <TableRow key={patient.id} onClick={() => navigate(`/app/patients/${patient.id}`)}>
+            {currentPage.map((row) => (
+              <TableRow key={row.patient.id} onClick={() => navigate(`/app/patients/${row.patient.id}`)}>
                 <TableCell>
-                  <strong>{patient.full_name}</strong>
-                  <div className="table-id">{patient.lapid}</div>
+                  <div className="patient-cell">
+                    <Avatar name={row.patient.full_name} src={row.patient.photo_url} />
+                    <div>
+                      <strong>{row.patient.full_name}</strong>
+                      <div className="table-id">{row.patient.lapid}</div>
+                    </div>
+                  </div>
                 </TableCell>
-                <TableCell>{formatPhone(patient.phone)}</TableCell>
-                <TableCell>{formatTimeAgo(patient.updated_at)}</TableCell>
-                <TableCell>{patient.visit_count ?? 1}</TableCell>
-                <TableCell>{patient.consent ? '✓' : '✗'}</TableCell>
-                <TableCell className="table-actions">View</TableCell>
+                <TableCell>{formatPhone(row.patient.phone)}</TableCell>
+                <TableCell>{formatTimeAgo(row.lastVisit)}</TableCell>
+                <TableCell>{row.totalVisits}</TableCell>
+                <TableCell>{row.patient.consent ? 'Yes' : 'No'}</TableCell>
+                <TableCell className="table-actions">
+                  <div className="action-menu" onClick={(event) => event.stopPropagation()}>
+                    <button
+                      type="button"
+                      className="action-menu__trigger"
+                      aria-label={`Open actions for ${row.patient.full_name}`}
+                      onClick={() => setOpenMenu((current) => (current === row.patient.id ? null : row.patient.id))}
+                    >
+                      <MoreVertical size={16} />
+                    </button>
+                    {openMenu === row.patient.id ? (
+                      <div className="action-menu__panel">
+                        <button type="button" onClick={() => navigate(`/app/patients/${row.patient.id}`)}>View</button>
+                        <button type="button" onClick={() => navigate(`/app/patients/${row.patient.id}?mode=edit`)}>Edit</button>
+                        <button type="button" onClick={() => void handlePrintLapidCard(row.patient)}>Print LAPID card</button>
+                      </div>
+                    ) : null}
+                  </div>
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       )}
+
       <div className="pagination-row">
         <Button variant="secondary" disabled={page === 0} onClick={() => setPage((prev) => prev - 1)}>
           Previous
         </Button>
-        <span>{page + 1} / {pageCount || 1}</span>
+        <span>{page + 1} / {pageCount}</span>
         <Button variant="secondary" disabled={page >= pageCount - 1} onClick={() => setPage((prev) => prev + 1)}>
           Next
         </Button>

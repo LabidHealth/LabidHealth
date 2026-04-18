@@ -39,5 +39,31 @@ export default defineConfig({
     alias: {
       '@': '/src'
     }
+  },
+  build: {
+    // Drop console.log and debugger statements in production builds
+    minify: 'esbuild',
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        // Split large vendor chunks for better caching
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'recharts': ['recharts'],
+          'supabase': ['@supabase/supabase-js'],
+          'dexie': ['dexie'],
+          'pdf': ['@react-pdf/renderer']
+        }
+      }
+    }
+  },
+  esbuild: {
+    // Remove console and debugger calls from production; keep them in dev
+    drop: process.env.NODE_ENV === 'production' ? ['console', 'debugger'] : []
+  },
+  test: {
+    environment: 'jsdom',
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    exclude: ['tests/**/*']
   }
 })

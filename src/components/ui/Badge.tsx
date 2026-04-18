@@ -17,9 +17,14 @@ type BadgeStatus =
   | 'UNPAID'
   | 'EXPIRED'
   | 'LOW STOCK'
+  | 'SUCCESS'
+  | 'WARNING'
+  | 'INFO'
 
 interface BadgeProps {
-  status: BadgeStatus
+  status: BadgeStatus | Lowercase<BadgeStatus>
+  children?: React.ReactNode
+  style?: React.CSSProperties
 }
 
 const statusConfig: Record<BadgeStatus, { color: string; bg: string }> = {
@@ -38,14 +43,18 @@ const statusConfig: Record<BadgeStatus, { color: string; bg: string }> = {
   CRITICAL: { color: '#FF4D4D', bg: 'rgba(255,77,77,0.12)' },
   UNPAID: { color: '#FF4D4D', bg: 'rgba(255,77,77,0.12)' },
   EXPIRED: { color: '#FF4D4D', bg: 'rgba(255,77,77,0.12)' },
-  'LOW STOCK': { color: '#FFB800', bg: 'rgba(255,184,0,0.12)' }
+  'LOW STOCK': { color: '#FFB800', bg: 'rgba(255,184,0,0.12)' },
+  SUCCESS: { color: '#00E5A0', bg: 'rgba(0,229,160,0.12)' },
+  WARNING: { color: '#FFB800', bg: 'rgba(255,184,0,0.12)' },
+  INFO: { color: '#3B8BD4', bg: 'rgba(59,139,212,0.12)' }
 }
 
-export function Badge({ status }: BadgeProps) {
-  const config = statusConfig[status]
+export function Badge({ status, children, style }: BadgeProps) {
+  const normalizedStatus = status.replace(/_/g, ' ').toUpperCase() as BadgeStatus
+  const config = statusConfig[normalizedStatus] ?? statusConfig.INFO
   return (
-    <span className="badge" style={{ color: config.color, background: config.bg }}>
-      {status}
+    <span className="badge" style={{ color: config.color, background: config.bg, ...style }}>
+      {children ?? normalizedStatus}
     </span>
   )
 }

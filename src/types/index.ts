@@ -22,6 +22,7 @@ export interface LabStaff {
   role: UserRole
   full_name: string
   phone?: string | null
+  two_factor_enabled?: boolean | null
   is_active: boolean
   created_at: string
   updated_at: string
@@ -50,6 +51,20 @@ export interface PatientVisit {
   lab_id: string
   visited_at: string
   created_by?: string | null
+}
+
+export interface PriceListItem {
+  id: string
+  lab_id: string
+  test_code: string
+  test_name: string
+  category: string
+  standard_price: number // stored in kobo - divide by 100 for display
+  hmo_price: number // stored in kobo - divide by 100 for display
+  corporate_price: number // stored in kobo - divide by 100 for display
+  is_active: boolean
+  created_at: string
+  updated_at: string
 }
 
 export type SampleStatus =
@@ -147,7 +162,7 @@ export type InvoiceStatus = 'unpaid' | 'partial' | 'paid' | 'refunded' | 'void'
 export interface InvoiceLineItem {
   test_code: string
   test_name: string
-  price: number // stored in kobo — divide by 100 for display
+  price: number // stored in kobo - divide by 100 for display
 }
 
 export interface Invoice {
@@ -157,11 +172,11 @@ export interface Invoice {
   lab_id: string
   sample_id?: string | null
   line_items: InvoiceLineItem[]
-  subtotal: number // stored in kobo — divide by 100 for display
-  platform_fee: number // stored in kobo — divide by 100 for display
-  total: number // stored in kobo — divide by 100 for display
-  amount_paid: number // stored in kobo — divide by 100 for display
-  outstanding: number // stored in kobo — divide by 100 for display
+  subtotal: number // stored in kobo - divide by 100 for display
+  platform_fee: number // stored in kobo - divide by 100 for display
+  total: number // stored in kobo - divide by 100 for display
+  amount_paid: number // stored in kobo - divide by 100 for display
+  outstanding: number // stored in kobo - divide by 100 for display
   status: InvoiceStatus
   notes?: string | null
   created_by?: string | null
@@ -175,7 +190,7 @@ export interface Payment {
   id: string
   invoice_id: string
   lab_id: string
-  amount: number // stored in kobo — divide by 100 for display
+  amount: number // stored in kobo - divide by 100 for display
   method: PaymentMethod
   reference?: string | null
   recorded_by?: string | null
@@ -196,7 +211,7 @@ export interface InventoryItem {
   expiry_date?: string | null
   supplier?: string | null
   supplier_phone?: string | null
-  cost_per_unit: number // stored in kobo — divide by 100 for display
+  cost_per_unit: number // stored in kobo - divide by 100 for display
   is_active: boolean
   created_at: string
   updated_at: string
@@ -211,7 +226,7 @@ export interface InventoryEvent {
   event_type: InventoryEventType
   quantity: number
   reason?: string | null
-  unit_cost: number // stored in kobo — divide by 100 for display
+  unit_cost: number // stored in kobo - divide by 100 for display
   batch_number?: string | null
   performed_by?: string | null
   created_at: string

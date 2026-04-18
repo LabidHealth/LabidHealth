@@ -4,7 +4,7 @@ export async function logAuditEvent(
   action: string,
   tableName: string,
   recordId: string,
-  oldValue?: Record<string, unknown>,
+  oldValue?: Record<string, unknown> | null,
   newValue?: Record<string, unknown>
 ) {
   await db.audit_log.add({

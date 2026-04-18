@@ -1,182 +1,516 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { format, parseISO } from 'date-fns'
+import { format, subDays } from 'date-fns'
 import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis
+  Bar, BarChart, CartesianGrid, Cell, Line, LineChart,
+  Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis
 } from 'recharts'
+import { useNavigate } from 'react-router-dom'
+import { Button, EmptyState, StatCard } from '@/components/ui'
+import { useAuthContext } from '@/context/AuthContext'
 import { db } from '@/lib/db'
 import { formatNaira, formatTimeAgo } from '@/lib/formatters'
-import { StatCard, EmptyState, Button } from '@/components/ui'
-import { useNavigate } from 'react-router-dom'
+import { resendNotification } from '@/lib/notifications'
+import { supabase } from '@/lib/supabase'
+import type { InventoryItem, Invoice, LabStaff, Notification, Patient, PatientVisit, Result, Sample } from '@/types'
 
 interface WeeklyData {
   day: string
   count: number
 }
 
+interface RevenueDayData {
+  date: string
+  revenue: number
+}
+
+interface PendingApprovalRow {
+  id: string
+  patientName: string
+  lapid: string
+  testType: string
+  createdAt: string
+}
+
+interface UndeliveredRow {
+  resultId: string
+  patientName: string
+  lapid: string
+  testType: string
+  approvedAt: string
+  notification: Notification | undefined
+}
+
+interface StaffProductivityRow {
+  staffId: string
+  name: string
+  role: string
+  testsEntered: number
+  approved: number
+}
+
+interface DashboardMetrics {
+  testsToday: number
+  testsTrend: 'up' | 'down' | 'neutral'
+  testsSub: string
+  revenueToday: number
+  revenueTrend: 'up' | 'down' | 'neutral'
+  revenueSub: string
+  pendingApprovals: number
+  undelivered: number
+  averageTAT: string
+  lowStock: number
+  weeklyData: WeeklyData[]
+  revenueData: RevenueDayData[]
+  topTests: Array<[string, number]>
+  pendingRows: PendingApprovalRow[]
+  undeliveredRows: UndeliveredRow[]
+  staffRows: StaffProductivityRow[]
+  newPatients: number
+  returningPatients: number
+  lowStockItems: InventoryItem[]
+}
+
+const placeholderWeeklyData: WeeklyData[] = Array.from({ length: 7 }, (_, i) => {
+  const d = new Date(); d.setDate(d.getDate() - (6 - i))
+  return { day: format(d, 'EEE'), count: 0 }
+})
+
+function getTrend(today: number, yesterday: number): 'up' | 'down' | 'neutral' {
+  if (today > yesterday) return 'up'
+  if (today < yesterday) return 'down'
+  return 'neutral'
+}
+
+function getTrendLabel(today: number, yesterday: number, formatter?: (v: number) => string) {
+  if (today === yesterday) return 'No change vs yesterday'
+  const diff = Math.abs(today - yesterday)
+  const rendered = formatter ? formatter(diff) : `${diff}`
+  return `${today > yesterday ? '+' : '-'}${rendered} vs yesterday`
+}
+
+function isBetween(ds: string | null | undefined, start: Date, end: Date) {
+  if (!ds) return false
+  const v = new Date(ds).getTime()
+  return v >= start.getTime() && v <= end.getTime()
+}
+
+function sod(offset = 0) {
+  const d = new Date(); d.setDate(d.getDate() + offset); d.setHours(0, 0, 0, 0); return d
+}
+
+function eod(offset = 0) {
+  const d = sod(offset); d.setHours(23, 59, 59, 999); return d
+}
+
+async function syncDashboardTables() {
+  if (!navigator.onLine) return
+  const [samples, results, invoices, notifications, inventory, patients, visits, staff] = await Promise.allSettled([
+    supabase.from('samples').select('*'),
+    supabase.from('results').select('*'),
+    supabase.from('invoices').select('*'),
+    supabase.from('notifications').select('*'),
+    supabase.from('inventory').select('*'),
+    supabase.from('patients').select('*'),
+    supabase.from('patient_visits').select('*'),
+    supabase.from('lab_staff').select('*')
+  ])
+  if (samples.status === 'fulfilled' && samples.value.data) await db.samples.bulkPut(samples.value.data)
+  if (results.status === 'fulfilled' && results.value.data) await db.results.bulkPut(results.value.data)
+  if (invoices.status === 'fulfilled' && invoices.value.data) await db.invoices.bulkPut(invoices.value.data)
+  if (notifications.status === 'fulfilled' && notifications.value.data) await db.notifications.bulkPut(notifications.value.data)
+  if (inventory.status === 'fulfilled' && inventory.value.data) await db.inventory.bulkPut(inventory.value.data)
+  if (patients.status === 'fulfilled' && patients.value.data) await db.patients.bulkPut(patients.value.data)
+  if (visits.status === 'fulfilled' && visits.value.data) await db.patient_visits.bulkPut(visits.value.data)
+  if (staff.status === 'fulfilled' && staff.value.data) await db.lab_staff.bulkPut(staff.value.data)
+}
+
+function buildMetrics(
+  samples: Sample[], results: Result[], invoices: Invoice[],
+  notifications: Notification[], inventory: InventoryItem[],
+  patients: Patient[], visits: PatientVisit[], staff: LabStaff[]
+): DashboardMetrics {
+  const todayStart = sod(); const todayEnd = eod()
+  const ydStart = sod(-1); const ydEnd = eod(-1)
+  const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0)
+
+  const testsToday = samples.filter((s) => isBetween(s.collected_at, todayStart, todayEnd)).length
+  const testsYd = samples.filter((s) => isBetween(s.collected_at, ydStart, ydEnd)).length
+
+  const revenueToday = invoices.filter((i) => isBetween(i.created_at, todayStart, todayEnd)).reduce((a, i) => a + i.total, 0)
+  const revenueYd = invoices.filter((i) => isBetween(i.created_at, ydStart, ydEnd)).reduce((a, i) => a + i.total, 0)
+
+  const pendingResults = results.filter((r) => r.status === 'awaiting_approval')
+
+  const undeliveredRows: UndeliveredRow[] = results.filter((r) => {
+    if (!r.approved_at) return false
+    const age = Date.now() - new Date(r.approved_at).getTime()
+    if (age < 24 * 3_600_000) return false
+    return !notifications.some((n) => n.result_id === r.id && n.opened_at)
+  }).map((r) => {
+    const p = patients.find((pt) => pt.lapid === r.lapid)
+    const notif = notifications.filter((n) => n.result_id === r.id).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
+    return {
+      resultId: r.id,
+      patientName: p?.full_name ?? r.lapid,
+      lapid: r.lapid,
+      testType: r.test_type,
+      approvedAt: r.approved_at ?? '',
+      notification: notif
+    }
+  }).slice(0, 10)
+
+  const tatVals = results
+    .filter((r) => isBetween(r.approved_at, todayStart, todayEnd))
+    .map((r) => {
+      const s = samples.find((sm) => sm.sample_id === r.sample_id)
+      if (!s || !r.approved_at) return null
+      return new Date(r.approved_at).getTime() - new Date(s.collected_at).getTime()
+    }).filter((v): v is number => v !== null)
+
+  const averageTAT = tatVals.length
+    ? `${Math.max(1, Math.round(tatVals.reduce((a, v) => a + v, 0) / tatVals.length / 3_600_000))} hrs`
+    : '-'
+
+  const lowStockItems = inventory.filter((i) => i.current_stock < i.minimum_level).slice(0, 8)
+  const lowStock = lowStockItems.length
+
+  const weeklyData = placeholderWeeklyData.map((e, idx) => ({
+    day: e.day,
+    count: samples.filter((s) => isBetween(s.collected_at, sod(idx - 6), eod(idx - 6))).length
+  }))
+
+  // Revenue last 30 days (owner)
+  const revenueData: RevenueDayData[] = Array.from({ length: 30 }, (_, i) => {
+    const d = subDays(new Date(), 29 - i)
+    const ds = sod(-(29 - i))
+    const de = eod(-(29 - i))
+    return {
+      date: format(d, 'MM/dd'),
+      revenue: invoices.filter((inv) => isBetween(inv.created_at, ds, de)).reduce((a, inv) => a + inv.total, 0) / 100
+    }
+  })
+
+  const testCounts = new Map<string, number>()
+  for (const s of samples.filter((sm) => new Date(sm.collected_at) >= monthStart)) {
+    for (const t of s.tests_ordered) testCounts.set(t, (testCounts.get(t) ?? 0) + 1)
+  }
+  const topTests = Array.from(testCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5)
+  const patientMap = new Map(patients.map((p) => [p.lapid, p.full_name]))
+
+  const pendingRows = pendingResults.map((r) => ({
+    id: r.id,
+    patientName: patientMap.get(r.lapid) ?? 'Unknown',
+    lapid: r.lapid,
+    testType: r.test_type,
+    createdAt: r.created_at
+  }))
+
+  // New vs Returning: patients who had >1 visit before today are returning
+  const visitCountByLapid = new Map<string, number>()
+  for (const v of visits) {
+    visitCountByLapid.set(v.lapid, (visitCountByLapid.get(v.lapid) ?? 0) + 1)
+  }
+  const todaySampleLapids = new Set(samples.filter((s) => isBetween(s.collected_at, todayStart, todayEnd)).map((s) => s.lapid))
+  let newPatients = 0; let returningPatients = 0
+  for (const lapid of todaySampleLapids) {
+    const count = visitCountByLapid.get(lapid) ?? 0
+    if (count <= 1) newPatients++; else returningPatients++
+  }
+
+  // Staff productivity (this month)
+  const staffRows: StaffProductivityRow[] = staff.map((s) => ({
+    staffId: s.user_id,
+    name: s.full_name,
+    role: s.role,
+    testsEntered: results.filter((r) => r.entered_by === s.user_id && new Date(r.created_at) >= monthStart).length,
+    approved: results.filter((r) => r.approved_by === s.user_id && new Date(r.created_at) >= monthStart).length
+  })).filter((r) => r.testsEntered + r.approved > 0).sort((a, b) => b.testsEntered - a.testsEntered).slice(0, 10)
+
+  return {
+    testsToday, testsTrend: getTrend(testsToday, testsYd), testsSub: getTrendLabel(testsToday, testsYd),
+    revenueToday, revenueTrend: getTrend(revenueToday, revenueYd), revenueSub: getTrendLabel(revenueToday, revenueYd, formatNaira),
+    pendingApprovals: pendingResults.length,
+    undelivered: undeliveredRows.length,
+    averageTAT, lowStock,
+    weeklyData: weeklyData.some((e) => e.count > 0) ? weeklyData : placeholderWeeklyData,
+    revenueData,
+    topTests, pendingRows, undeliveredRows, staffRows,
+    newPatients, returningPatients, lowStockItems
+  }
+}
+
 export function DashboardPage() {
-  const [testsToday, setTestsToday] = useState(0)
-  const [revenueToday, setRevenueToday] = useState(0)
-  const [pendingApprovals, setPendingApprovals] = useState(0)
-  const [undelivered, setUndelivered] = useState(0)
-  const [averageTAT, setAverageTAT] = useState('—')
-  const [lowStock, setLowStock] = useState(0)
-  const [weeklyData, setWeeklyData] = useState<WeeklyData[]>([])
-  const [topTests, setTopTests] = useState<Record<string, number>>({})
-  const [pendingResults, setPendingResults] = useState<any[]>([])
+  const { role } = useAuthContext()
   const navigate = useNavigate()
+  const [metrics, setMetrics] = useState<DashboardMetrics>(() => buildMetrics([], [], [], [], [], [], [], []))
+  const [resendingId, setResendingId] = useState<string | null>(null)
 
   useEffect(() => {
     let mounted = true
-
     const load = async () => {
-      const todayStart = new Date()
-      todayStart.setHours(0, 0, 0, 0)
-      const todayEnd = new Date(todayStart)
-      todayEnd.setHours(23, 59, 59, 999)
-
-      const [samples, results, invoices, notifications, inventory] = await Promise.all([
-        db.samples.where('collected_at').between(todayStart.toISOString(), todayEnd.toISOString(), true, true).toArray(),
-        db.results.toArray(),
-        db.invoices.where('created_at').between(todayStart.toISOString(), todayEnd.toISOString(), true, true).toArray(),
-        db.notifications.toArray(),
-        db.inventory.toArray()
-      ])
-
-      if (!mounted) return
-
-      setTestsToday(samples.length)
-      setRevenueToday(invoices.reduce((sum, invoice) => sum + invoice.total, 0))
-      setPendingApprovals(results.filter((result) => result.status === 'awaiting_approval').length)
-      setUndelivered(
-        notifications.filter((notification) => notification.opened_at == null && notification.sent_at).length
-      )
-      const tatValues = results
-        .filter((result) => result.approved_at)
-        .map((result) => {
-          const sample = samples.find((s) => s.sample_id === result.sample_id)
-          if (!sample) return null
-          return new Date(result.approved_at).getTime() - new Date(sample.collected_at).getTime()
-        })
-        .filter((value): value is number => typeof value === 'number')
-      if (tatValues.length > 0) {
-        const avgHit = Math.round(tatValues.reduce((sum, value) => sum + value, 0) / tatValues.length / 3600000)
-        setAverageTAT(`${avgHit} hrs`)
+      const refresh = async () => {
+        const [samples, results, invoices, notifications, inventory, patients, visits, staff] = await Promise.all([
+          db.samples.toArray(), db.results.toArray(), db.invoices.toArray(),
+          db.notifications.toArray(), db.inventory.toArray(), db.patients.toArray(),
+          db.patient_visits.toArray(), db.lab_staff.toArray()
+        ])
+        if (!mounted) return
+        setMetrics(buildMetrics(samples, results, invoices, notifications, inventory, patients, visits, staff))
       }
-      setLowStock(inventory.filter((item) => Number(item.current_stock) < Number(item.minimum_level)).length)
-
-      const week: WeeklyData[] = []
-      for (let i = 6; i >= 0; i -= 1) {
-        const date = new Date()
-        date.setDate(date.getDate() - i)
-        const start = new Date(date)
-        start.setHours(0, 0, 0, 0)
-        const end = new Date(date)
-        end.setHours(23, 59, 59, 999)
-        const count = await db.samples
-          .where('collected_at')
-          .between(start.toISOString(), end.toISOString(), true, true)
-          .count()
-        week.push({ day: format(date, 'EEE'), count })
-      }
-      setWeeklyData(week)
-
-      const testCounts: Record<string, number> = {}
-      samples.forEach((sample) => {
-        sample.tests_ordered.forEach((test) => {
-          testCounts[test] = (testCounts[test] ?? 0) + 1
-        })
-      })
-      setTopTests(testCounts)
-
-      const pending = await db.results.where('status').equals('awaiting_approval').toArray()
-      setPendingResults(pending)
+      await refresh()
+      if (navigator.onLine) { await syncDashboardTables(); await refresh() }
     }
-
-    load()
-    return () => {
-      mounted = false
-    }
+    void load()
+    return () => { mounted = false }
   }, [])
 
-  const topTestEntries = useMemo(() => Object.entries(topTests).sort((a, b) => b[1] - a[1]).slice(0, 5), [topTests])
+  const topTests = useMemo(() => metrics.topTests, [metrics.topTests])
+  const showRevenue = role === 'owner'
+  const canSeeStaff = role === 'owner' || role === 'manager'
+
+  const donutData = [
+    { name: 'New', value: metrics.newPatients, color: 'var(--color-mint)' },
+    { name: 'Returning', value: metrics.returningPatients, color: 'var(--color-forest)' }
+  ]
+  const totalPatients = metrics.newPatients + metrics.returningPatients
+
+  async function handleResend(row: UndeliveredRow) {
+    if (!row.notification) return
+    setResendingId(row.resultId)
+    try {
+      await resendNotification(row.notification, null)
+    } finally {
+      setResendingId(null)
+    }
+  }
 
   return (
     <div className="dashboard-grid">
-      <div className="dashboard-row">
-        <StatCard label="Tests Today" value={`${testsToday}`} sub="vs yesterday" />
-        <StatCard
-          label="Revenue Today"
-          value={formatNaira(revenueToday)}
-          sub="Owner only"
-        />
-        <StatCard
-          label="Pending Approvals"
-          value={`${pendingApprovals}`}
-          status={pendingApprovals > 0 ? 'warning' : undefined}
-        />
-        <StatCard
-          label="Undelivered Results"
-          value={`${undelivered}`}
-          status={undelivered > 0 ? 'danger' : undefined}
-        />
+      {/* Stat cards */}
+      <div className={`dashboard-row${showRevenue ? '' : ' dashboard-row--compact'}`}>
+        <StatCard label="Tests Today" value={`${metrics.testsToday}`} sub={metrics.testsSub} trend={metrics.testsTrend} />
+        {showRevenue ? (
+          <StatCard label="Revenue Today" value={formatNaira(metrics.revenueToday)} sub={metrics.revenueSub} trend={metrics.revenueTrend} />
+        ) : null}
+        <StatCard label="Pending Approvals" value={`${metrics.pendingApprovals}`} status={metrics.pendingApprovals > 0 ? 'warning' : undefined} />
+        <StatCard label="Undelivered Results" value={`${metrics.undelivered}`} status={metrics.undelivered > 0 ? 'danger' : undefined} />
       </div>
-      <div className="dashboard-row">
-        <StatCard label="Average TAT" value={averageTAT} />
-        <StatCard
-          label="Low Stock Items"
-          value={`${lowStock}`}
-          status={lowStock > 0 ? 'warning' : undefined}
-        />
+
+      <div className="dashboard-row dashboard-row--secondary">
+        <StatCard label="Average TAT" value={metrics.averageTAT} />
+        <StatCard label="Low Stock Items" value={`${metrics.lowStock}`} status={metrics.lowStock > 0 ? 'warning' : undefined} />
       </div>
-      <section className="chart-card">
-        <h3>Tests This Week</h3>
-        <ResponsiveContainer width="100%" height={240}>
-          <BarChart data={weeklyData} margin={{ top: 20, right: 16, left: 16, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-            <XAxis dataKey="day" stroke="var(--color-text-secondary)" />
-            <Tooltip contentStyle={{ borderRadius: 12 }} />
-            <Bar dataKey="count" fill="var(--color-mint)" radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </section>
-      <section className="top-tests">
-        <h3>Top 5 Tests This Month</h3>
-        <div className="top-tests__list">
-          {topTestEntries.map(([test, count]) => (
-            <div key={test} className="top-test-row">
-              <span>{test}</span>
-              <strong>{count}</strong>
+
+      {/* Charts row */}
+      <div className="dashboard-row" style={{ gap: 16, alignItems: 'stretch' }}>
+        {/* Tests this week bar chart */}
+        <section className="chart-card" style={{ flex: 2 }}>
+          <h3>Tests This Week</h3>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={metrics.weeklyData} margin={{ top: 16, right: 12, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+              <XAxis dataKey="day" stroke="var(--color-text-secondary)" />
+              <Tooltip contentStyle={{ borderRadius: 12 }} />
+              <Bar dataKey="count" fill="var(--color-mint)" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </section>
+
+        {/* New vs Returning donut */}
+        <section className="chart-card" style={{ flex: 1, minWidth: 200 }}>
+          <h3>Today's Patients</h3>
+          {totalPatients === 0 ? (
+            <EmptyState icon="-" headline="No patients today" description="" />
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={160}>
+                <PieChart>
+                  <Pie
+                    data={donutData}
+                    cx="50%" cy="50%"
+                    innerRadius={50} outerRadius={75}
+                    dataKey="value"
+                    paddingAngle={3}
+                  >
+                    {donutData.map((entry, i) => (
+                      <Cell key={i} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(v: number) => [`${v}`, '']} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div style={{ display: 'flex', gap: 16, justifyContent: 'center', fontSize: 12, marginTop: 4 }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--color-mint)', display: 'inline-block' }} />
+                  New ({metrics.newPatients})
+                </span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--color-forest)', display: 'inline-block' }} />
+                  Returning ({metrics.returningPatients})
+                </span>
+              </div>
+            </>
+          )}
+        </section>
+      </div>
+
+      {/* Revenue trend (owner only) */}
+      {showRevenue ? (
+        <section className="chart-card">
+          <h3>Revenue — Last 30 Days</h3>
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={metrics.revenueData} margin={{ top: 16, right: 12, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+              <XAxis dataKey="date" stroke="var(--color-text-secondary)" tick={{ fontSize: 10 }} interval={4} />
+              <YAxis stroke="var(--color-text-secondary)" tick={{ fontSize: 10 }} tickFormatter={(v) => `₦${(v / 1000).toFixed(0)}k`} />
+              <Tooltip formatter={(v: number) => [`₦${v.toLocaleString()}`, 'Revenue']} />
+              <Line type="monotone" dataKey="revenue" stroke="var(--color-mint)" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </section>
+      ) : null}
+
+      {/* Undelivered Results */}
+      {metrics.undeliveredRows.length > 0 ? (
+        <section className="pending-queue">
+          <header>
+            <h3>Undelivered Results</h3>
+            <Button variant="secondary" onClick={() => navigate('/app/results')}>View all</Button>
+          </header>
+          <div className="pending-list">
+            {metrics.undeliveredRows.map((row) => (
+              <div key={row.resultId} className="pending-row">
+                <div>
+                  <p>{row.patientName}</p>
+                  <small className="pending-row__meta">
+                    <span className="table-id">{row.lapid}</span>
+                    <span>{row.testType}</span>
+                    <span style={{ color: 'var(--color-status-danger)' }}>
+                      Approved {formatTimeAgo(row.approvedAt)} — not opened
+                    </span>
+                  </small>
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <Button variant="secondary" size="sm" onClick={() => navigate(`/app/results/${row.resultId}`)}>
+                    View
+                  </Button>
+                  {row.notification ? (
+                    <Button
+                      variant="primary" size="sm"
+                      loading={resendingId === row.resultId}
+                      onClick={() => void handleResend(row)}
+                    >
+                      Resend
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {/* Top tests + Low stock row */}
+      <div className="dashboard-row" style={{ gap: 16, alignItems: 'stretch' }}>
+        <section className="top-tests" style={{ flex: 1 }}>
+          <h3>Top 5 Tests This Month</h3>
+          {topTests.length === 0 ? (
+            <EmptyState icon="-" headline="No tests yet" description="Top test volume will appear after the first samples land." />
+          ) : (
+            <div className="top-tests__list">
+              {topTests.map(([test, count]) => (
+                <div key={test} className="top-test-row">
+                  <span>{test}</span>
+                  <strong>{count}</strong>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      </section>
+          )}
+        </section>
+
+        {/* Low stock quick view */}
+        {metrics.lowStockItems.length > 0 ? (
+          <section className="top-tests" style={{ flex: 1 }}>
+            <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h3 style={{ margin: 0 }}>Low Stock</h3>
+              <Button variant="secondary" size="sm" onClick={() => navigate('/app/inventory')}>View all</Button>
+            </header>
+            <div className="top-tests__list">
+              {metrics.lowStockItems.map((item) => {
+                const pct = item.minimum_level > 0
+                  ? Math.min(100, Math.round((item.current_stock / item.minimum_level) * 100))
+                  : 0
+                return (
+                  <div key={item.id} className="top-test-row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                      <span style={{ fontSize: 13 }}>{item.item_name}</span>
+                      <span style={{ fontSize: 12, color: 'var(--color-status-danger)', fontWeight: 600 }}>
+                        {item.current_stock}/{item.minimum_level} {item.unit}
+                      </span>
+                    </div>
+                    <div style={{ width: '100%', height: 4, background: 'var(--color-border)', borderRadius: 2 }}>
+                      <div style={{
+                        height: '100%', borderRadius: 2,
+                        background: pct < 50 ? 'var(--color-status-danger)' : 'var(--color-status-warning)',
+                        width: `${pct}%`
+                      }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+        ) : null}
+      </div>
+
+      {/* Staff productivity (manager/owner) */}
+      {canSeeStaff && metrics.staffRows.length > 0 ? (
+        <section className="chart-card">
+          <h3>Staff Productivity — This Month</h3>
+          <table className="data-table" style={{ marginTop: 8 }}>
+            <thead>
+              <tr>
+                <th>Staff</th>
+                <th>Role</th>
+                <th>Results Entered</th>
+                <th>Results Approved</th>
+              </tr>
+            </thead>
+            <tbody>
+              {metrics.staffRows.map((s) => (
+                <tr key={s.staffId}>
+                  <td>{s.name}</td>
+                  <td style={{ textTransform: 'capitalize', color: 'var(--color-text-secondary)', fontSize: 12 }}>{s.role.replace('_', ' ')}</td>
+                  <td><strong>{s.testsEntered}</strong></td>
+                  <td><strong>{s.approved}</strong></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ) : null}
+
+      {/* Pending approvals queue */}
       <section className="pending-queue">
         <header>
           <h3>Pending Approvals</h3>
-          <Button variant="secondary" onClick={() => navigate('/app/results')}>
-            View all
-          </Button>
+          <Button variant="secondary" onClick={() => navigate('/app/results')}>View all</Button>
         </header>
-        {pendingResults.length === 0 ? (
-          <EmptyState
-            icon="⚪"
-            headline="Nothing waiting for approval"
-            description="All results are current."
-          />
+        {metrics.pendingRows.length === 0 ? (
+          <EmptyState icon="-" headline="Nothing waiting for approval" description="All results are current." />
         ) : (
           <div className="pending-list">
-            {pendingResults.map((result) => (
-              <div key={result.id} className="pending-row">
+            {metrics.pendingRows.map((r) => (
+              <div key={r.id} className="pending-row">
                 <div>
-                  <p>{result.test_type}</p>
-                  <small>{formatTimeAgo(result.created_at)}</small>
+                  <p>{r.patientName}</p>
+                  <small className="pending-row__meta">
+                    <span className="table-id">{r.lapid}</span>
+                    <span>{r.testType}</span>
+                    <span>{formatTimeAgo(r.createdAt)}</span>
+                  </small>
                 </div>
-                <Button variant="primary" size="sm" onClick={() => navigate(`/app/results/${result.id}`)}>
+                <Button variant="primary" size="sm" onClick={() => navigate(`/app/results/${r.id}`)}>
                   Approve
                 </Button>
               </div>

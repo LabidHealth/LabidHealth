@@ -1,11 +1,14 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useNavigate } from 'react-router-dom'
-import { Input, PhoneInput, Button, Modal, useToast } from '@/components/ui'
-import { supabase } from '@/lib/supabase'
-import { writeRecord } from '@/lib/writeRecord'
+import { Button, Input, Modal, PhoneInput, useToast } from '@/components/ui'
 import { useAuthContext } from '@/context/AuthContext'
-import { db } from '@/lib/db'
+import { findPotentialDuplicate, type DuplicateCandidate } from '@/lib/patientSearch'
+import { generateLocalLapid } from '@/lib/lapid'
+import { offlineSuccessMessage } from '@/lib/offlineWrite'
+import { supabase } from '@/lib/supabase'
+import { friendlyError } from '@/lib/supabaseQuery'
+import { writeRecord } from '@/lib/writeRecord'
 
 interface FormValues {
   full_name: string
@@ -16,107 +19,161 @@ interface FormValues {
   next_of_kin?: string
   next_of_kin_phone?: string
   consent: boolean
+  photo_url?: string | null
 }
 
 export function RegisterPatientPage() {
-  const { register, handleSubmit, watch, setValue } = useForm<FormValues>({
-    defaultValues: { gender: 'male', consent: true }
+  const { register, handleSubmit, watch, setValue, getValues, formState: { errors } } = useForm<FormValues>({
+    defaultValues: { gender: 'male', consent: false, photo_url: null }
   })
-  const [loading, setLoading] = useState(false)
-  const [duplicate, setDuplicate] = useState<any | null>(null)
-  const [forceNew, setForceNew] = useState(false)
-  const { role, labId, user } = useAuthContext()
-  const toast = useToast()
+  const { labId, user } = useAuthContext()
   const navigate = useNavigate()
+  const toast = useToast()
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  const [loading, setLoading] = useState(false)
+  const [pendingSubmission, setPendingSubmission] = useState<FormValues | null>(null)
+  const [duplicate, setDuplicate] = useState<DuplicateCandidate | null>(null)
 
   const values = watch()
-  const hasConsent = values.consent
 
-  const checkDuplicates = async (phone: string) => {
-    const local = await db.patients.where('phone').equals(phone).first()
-    if (local) return local
-    const fuzzy = await db.patients.toArray()
-    return fuzzy.find((patient) =>
-      patient.full_name.toLowerCase().includes(values.full_name.toLowerCase().slice(0, 3))
-    )
+  async function createPatientRecord(data: FormValues) {
+    let lapid: string
+    if (navigator.onLine) {
+      const { data: lapidResponse, error: lapidError } = await supabase.rpc('generate_lapid')
+      if (lapidError) {
+        lapid = await generateLocalLapid()
+      } else {
+        lapid = (lapidResponse as string) ?? (await generateLocalLapid())
+      }
+    } else {
+      lapid = await generateLocalLapid()
+    }
+
+    const now = new Date().toISOString()
+    const patientId = crypto.randomUUID()
+
+    await writeRecord('patients', 'INSERT', {
+      id: patientId,
+      lapid,
+      full_name: data.full_name.trim(),
+      date_of_birth: data.date_of_birth || null,
+      gender: data.gender,
+      phone: data.phone,
+      address: data.address || null,
+      next_of_kin: data.next_of_kin || null,
+      next_of_kin_phone: data.next_of_kin_phone || null,
+      photo_url: data.photo_url || null,
+      consent: data.consent,
+      consent_date: now,
+      created_at: now,
+      updated_at: now
+    })
+
+    if (labId) {
+      await writeRecord('patient_visits', 'INSERT', {
+        id: crypto.randomUUID(),
+        lapid,
+        lab_id: labId,
+        visited_at: now,
+        created_by: user?.id ?? null
+      })
+    }
+
+    toast.push(offlineSuccessMessage(`Patient registered - LAPID: ${lapid}`))
+    navigate(`/app/patients/${patientId}`)
   }
 
-  const onSubmit = async (data: FormValues) => {
-    if (!hasConsent) {
+  async function useExistingRecord(candidate: DuplicateCandidate) {
+    if (!labId) {
+      toast.push('Lab context is missing for this visit.', 'error')
+      return
+    }
+
+    const now = new Date().toISOString()
+    await writeRecord('patient_visits', 'INSERT', {
+      id: crypto.randomUUID(),
+      lapid: candidate.patient.lapid,
+      lab_id: labId,
+      visited_at: now,
+      created_by: user?.id ?? null
+    })
+
+    toast.push(offlineSuccessMessage(`Existing patient visit recorded - ${candidate.patient.lapid}`))
+    navigate(`/app/patients/${candidate.patient.id}`)
+  }
+
+  const onSubmit = handleSubmit(async (data) => {
+    if (!data.consent) {
       toast.push('Consent is required before saving', 'error')
       return
     }
+
     setLoading(true)
     try {
-      const dup = await checkDuplicates(data.phone)
-      if (dup && !forceNew) {
-        setDuplicate(dup)
-        setLoading(false)
+      const candidate = await findPotentialDuplicate(data.full_name, data.phone)
+      if (candidate) {
+        setPendingSubmission(data)
+        setDuplicate(candidate)
         return
       }
 
-      const { data: lapidResponse, error: lapidError } = await supabase.rpc('generate_lapid')
-      if (lapidError) throw lapidError
-      const lapid = (lapidResponse as string) ?? `LA-${new Date().getFullYear()}-00001`
-
-      const patientPayload = {
-        id: crypto.randomUUID(),
-        lapid,
-        full_name: data.full_name,
-        date_of_birth: data.date_of_birth || null,
-        gender: data.gender,
-        phone: data.phone,
-        address: data.address || null,
-        next_of_kin: data.next_of_kin || null,
-        next_of_kin_phone: data.next_of_kin_phone || null,
-        consent: data.consent,
-        consent_date: new Date().toISOString(),
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }
-
-      await writeRecord('patients', 'INSERT', patientPayload)
-
-      if (labId) {
-        await writeRecord('patient_visits', 'INSERT', {
-          id: crypto.randomUUID(),
-          lapid,
-          lab_id: labId,
-          visited_at: new Date().toISOString(),
-          created_by: user?.id ?? null
-        })
-      }
-
-      toast.push(`Patient registered — LAPID: ${lapid}`)
-      navigate('/app/patients')
+      await createPatientRecord(data)
     } catch (error) {
-      toast.push((error as Error).message, 'error')
+      toast.push(friendlyError(error), 'error')
     } finally {
       setLoading(false)
-      setForceNew(false)
+    }
+  })
+
+  async function handleForceNew() {
+    if (!pendingSubmission) return
+    setLoading(true)
+    try {
+      await createPatientRecord(pendingSubmission)
+      setDuplicate(null)
+      setPendingSubmission(null)
+    } catch (error) {
+      toast.push(friendlyError(error), 'error')
+    } finally {
+      setLoading(false)
     }
   }
 
-  const duplicateMetadata = useMemo(
-    () =>
-      duplicate
-        ? [
-            { label: 'Full name', current: values.full_name, existing: duplicate.full_name },
-            { label: 'Phone', current: values.phone, existing: duplicate.phone },
-            { label: 'LAPID', current: 'New', existing: duplicate.lapid }
-          ]
-        : [],
-    [duplicate, values]
-  )
+  async function handlePhotoUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    const result = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+      reader.onerror = () => reject(new Error('Unable to read patient photo'))
+      reader.readAsDataURL(file)
+    })
+
+    setValue('photo_url', result)
+  }
+
+  const duplicateMetadata = useMemo(() => {
+    if (!duplicate) return []
+
+    return [
+      { label: 'Full name', current: values.full_name, existing: duplicate.patient.full_name },
+      { label: 'Phone', current: values.phone, existing: duplicate.patient.phone },
+      { label: 'LAPID', current: 'New patient', existing: duplicate.patient.lapid }
+    ]
+  }, [duplicate, values.full_name, values.phone])
 
   return (
     <section className="form-page">
       <header>
         <h2>Register Patient</h2>
       </header>
-      <form className="form-grid" onSubmit={handleSubmit(onSubmit)}>
-        <Input label="Full name" {...register('full_name', { required: true })} />
+
+      <form className="form-grid" onSubmit={onSubmit}>
+        <Input label="Full name" error={errors.full_name?.message} {...register('full_name', { required: 'Full name is required' })} />
         <Input label="Date of birth (DD/MM/YYYY)" {...register('date_of_birth')} placeholder="DD/MM/YYYY" />
+
         <label className="form-label">
           Gender
           <select className="form-input" {...register('gender')}>
@@ -125,46 +182,77 @@ export function RegisterPatientPage() {
             <option value="other">Other</option>
           </select>
         </label>
-        <PhoneInput label="Phone" value={values.phone} onChange={(value) => setValue('phone', value)} />
+
+        <PhoneInput label="Phone" value={values.phone ?? ''} onChange={(value) => setValue('phone', value, { shouldDirty: true })} />
         <Input label="Address" {...register('address')} />
         <Input label="Next of kin name" {...register('next_of_kin')} />
-        <PhoneInput label="Next of kin phone" value={values.next_of_kin_phone ?? ''} onChange={(value) => setValue('next_of_kin_phone', value)} />
-        <label className="form-label">
-          <input type="checkbox" {...register('consent')} />
-          I consent to my health data being stored and shared across Labora AI labs I visit.
+        <PhoneInput
+          label="Next of kin phone"
+          value={values.next_of_kin_phone ?? ''}
+          onChange={(value) => setValue('next_of_kin_phone', value, { shouldDirty: true })}
+        />
+
+        <div className="photo-upload">
+          <label className="form-label">Patient photo</label>
+          <input ref={fileInputRef} className="photo-upload__input" type="file" accept="image/*" capture="environment" onChange={handlePhotoUpload} />
+          <Button type="button" variant="secondary" onClick={() => fileInputRef.current?.click()}>
+            Upload photo
+          </Button>
+          {values.photo_url ? <span className="form-autosave">Photo attached</span> : null}
+        </div>
+
+        <label className="form-label form-checkbox">
+          <input type="checkbox" {...register('consent', { required: true })} />
+          <span>I consent to my health data being stored and shared across Labora AI labs I visit. I can withdraw this consent at any time.</span>
         </label>
-        <Button type="submit" loading={loading}>
-          Save patient
-        </Button>
-        <span className="form-autosave">• All changes autosaved</span>
+
+        <div className="form-actions">
+          <Button type="submit" loading={loading}>
+            Save patient
+          </Button>
+          <span className="form-autosave">* All changes autosaved locally before sync</span>
+        </div>
       </form>
+
       <Modal
         open={Boolean(duplicate)}
         title="Potential duplicate"
-        onClose={() => setDuplicate(null)}
+        onClose={() => {
+          setDuplicate(null)
+          setPendingSubmission(getValues())
+        }}
         footer={
           <>
             <Button variant="text" onClick={() => setDuplicate(null)}>
-              Go back & edit
+              Go back and edit
             </Button>
-            <Button variant="secondary" onClick={() => setForceNew(true)}>
+            <Button variant="secondary" onClick={() => void handleForceNew()}>
               This is a new patient
             </Button>
-            <Button variant="primary" onClick={() => duplicate && navigate(`/app/patients/${duplicate.id}`)}>
+            <Button variant="primary" onClick={() => duplicate && void useExistingRecord(duplicate)}>
               Use existing record
             </Button>
           </>
         }
       >
         <p>We found an existing patient with similar details.</p>
+        <p className="duplicate-confidence">{Math.round((duplicate?.matchScore ?? 0) * 100)}% match</p>
         <div className="duplicate-table">
-          {duplicateMetadata.map((item) => (
-            <div key={item.label} className="duplicate-row">
-              <strong>{item.label}</strong>
-              <p>{item.current}</p>
-              <p className="duplicate-existing">{item.existing}</p>
-            </div>
-          ))}
+          <div className="duplicate-row duplicate-row--header">
+            <strong>Attribute</strong>
+            <strong>Current entry</strong>
+            <strong>Existing record</strong>
+          </div>
+          {duplicateMetadata.map((item) => {
+            const exactMatch = item.current?.toLowerCase() === item.existing?.toLowerCase()
+            return (
+              <div key={item.label} className="duplicate-row">
+                <strong>{item.label}</strong>
+                <p className={exactMatch ? 'duplicate-match duplicate-match--exact' : 'duplicate-match duplicate-match--possible'}>{item.current || '-'}</p>
+                <p className={exactMatch ? 'duplicate-existing duplicate-match--exact' : 'duplicate-existing'}>{item.existing || '-'}</p>
+              </div>
+            )
+          })}
         </div>
       </Modal>
     </section>
