@@ -53,7 +53,7 @@ export function InvoiceDetailPage() {
 
       setInvoice(inv)
       const [patientRecord, paymentRecords] = await Promise.all([
-        db.patients.where('lapid').equals(inv.lapid).first(),
+        db.patients.where('labid').equals(inv.labid).first(),
         db.payments.where('invoice_id').equals(inv.id).toArray()
       ])
 
@@ -146,7 +146,7 @@ export function InvoiceDetailPage() {
           invoice={invoice}
           payments={payments}
           patientName={patient?.full_name ?? 'Unknown Patient'}
-          labName={lab?.name ?? 'Labora AI Laboratory'}
+          labName={lab?.name ?? 'Labid Health Laboratory'}
           labAddress={lab?.address ?? ''}
           mlscnNo={lab?.mlscn_no ?? '—'}
           generatedAt={formatDateTime(new Date().toISOString())}
@@ -179,7 +179,7 @@ export function InvoiceDetailPage() {
       <header className="patient-detail__header">
         <div>
           <h2 className="table-id">#{invoice.invoice_id}</h2>
-          <p className="list-subtitle">{patient?.full_name ?? invoice.lapid} · <span className="table-id">{invoice.lapid}</span></p>
+          <p className="list-subtitle">{patient?.full_name ?? invoice.labid} · <span className="table-id">{invoice.labid}</span></p>
         </div>
         <div className="patient-detail__actions">
           <Badge status={invoiceStatusBadge(invoice.status)}>{invoice.status.toUpperCase()}</Badge>

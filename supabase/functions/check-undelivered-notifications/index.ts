@@ -25,7 +25,7 @@ serve(async (req) => {
 
     const { data: undelivered, error } = await supabase
       .from('notifications')
-      .select('id, lapid, result_id, lab_id, sent_at, failure_reason')
+      .select('id, labid, result_id, lab_id, sent_at, failure_reason')
       .gte('sent_at', twentyFourHoursAgo)
       .is('opened_at', null)
       .is('failure_reason', null)

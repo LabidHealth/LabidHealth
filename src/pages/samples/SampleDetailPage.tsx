@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Badge, Button, EmptyState, Input, Modal, useToast } from '@/components/ui'
-import { QRScanner } from '@/components/shared/QRScanner'
 import { useAuthContext } from '@/context/AuthContext'
 import { db } from '@/lib/db'
 import { formatDateTime, formatTimeAgo } from '@/lib/formatters'
@@ -11,16 +10,6 @@ import { writeRecord } from '@/lib/writeRecord'
 import type { Patient, Sample, SampleEvent, SampleStatus } from '@/types'
 
 const STATUS_FLOW: SampleStatus[] = ['received', 'processing', 'awaiting_approval', 'ready', 'delivered']
-
-// Maps a workstation QR value to the target status it sets
-const WORKSTATION_STATUS_MAP: Record<string, SampleStatus> = {
-  reception: 'received',
-  processing: 'processing',
-  scientist: 'awaiting_approval',
-  approval: 'awaiting_approval',
-  dispatch: 'ready',
-  delivery: 'delivered'
-}
 
 function nextStatus(current: SampleStatus): SampleStatus {
   const idx = STATUS_FLOW.indexOf(current)
@@ -42,7 +31,6 @@ export function SampleDetailPage() {
   const [statusOpen, setStatusOpen] = useState(false)
   const [rejectOpen, setRejectOpen] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
-  const [scannerOpen, setScannerOpen] = useState(false)
 
   useEffect(() => {
     if (!sampleId) return
@@ -53,7 +41,7 @@ export function SampleDetailPage() {
       setSample(record ?? null)
       if (record) {
         const [patientRecord, sampleEvents] = await Promise.all([
-          db.patients.where('lapid').equals(record.lapid).first(),
+          db.patients.where('labid').equals(record.labid).first(),
           db.sample_events.where('sample_id').equals(record.sample_id).sortBy('created_at')
         ])
         if (!mounted) return
@@ -147,81 +135,6 @@ export function SampleDetailPage() {
     }
   }
 
-  async function handleQrScan(decoded: string) {
-    if (!sample) return
-    setScannerOpen(false)
-
-    const now = new Date().toISOString()
-
-    // Determine workstation from decoded value (e.g. "WORKSTATION:processing" or just the sample ID)
-    const lowerDecoded = decoded.toLowerCase()
-    let targetStatus: SampleStatus | null = null
-    let stationName = 'workstation'
-
-    for (const [key, status] of Object.entries(WORKSTATION_STATUS_MAP)) {
-      if (lowerDecoded.includes(key)) {
-        targetStatus = status
-        stationName = key
-        break
-      }
-    }
-
-    // If no workstation match but matches sample ID, treat as a general check-in and advance
-    const matchesSampleId =
-      decoded === sample.sample_id ||
-      decoded === `#${sample.sample_id}` ||
-      decoded === sample.id
-
-    if (!targetStatus && matchesSampleId) {
-      targetStatus = nextStatus(sample.status)
-      stationName = 'workstation'
-    }
-
-    if (!targetStatus) {
-      toast.push(`QR scanned: ${decoded} — no workstation match`, 'warning')
-      return
-    }
-
-    try {
-      // Log qr_scanned event
-      const scanEvent: SampleEvent = {
-        id: crypto.randomUUID(),
-        sample_id: sample.sample_id,
-        event_type: 'qr_scanned',
-        performed_by: user?.id ?? null,
-        station: stationName,
-        notes: decoded,
-        created_at: now
-      }
-      await writeRecord('sample_events', 'INSERT', scanEvent)
-      setEvents((prev) => [...prev, scanEvent])
-
-      // Auto-update status if different
-      if (targetStatus !== sample.status) {
-        const updated: Sample = { ...sample, status: targetStatus, updated_at: now }
-        await writeRecord('samples', 'UPDATE', updated, sample)
-        setSample(updated)
-
-        const statusEvent: SampleEvent = {
-          id: crypto.randomUUID(),
-          sample_id: sample.sample_id,
-          event_type: 'status_updated',
-          performed_by: user?.id ?? null,
-          station: stationName,
-          notes: `${sample.status} -> ${targetStatus} (QR scan)`,
-          created_at: now
-        }
-        await writeRecord('sample_events', 'INSERT', statusEvent)
-        setEvents((prev) => [...prev, statusEvent])
-        toast.push(offlineSuccessMessage(`Workstation: ${stationName} — status updated to ${targetStatus.replace(/_/g, ' ')}`))
-      } else {
-        toast.push(offlineSuccessMessage(`Checked in at ${stationName}`))
-      }
-    } catch (error) {
-      toast.push(friendlyError(error), 'error')
-    }
-  }
-
   if (!sample) {
     return (
       <EmptyState
@@ -243,7 +156,7 @@ export function SampleDetailPage() {
       <header className="patient-detail__header">
         <div>
           <h2 className="table-id">#{sample.sample_id}</h2>
-          <p className="list-subtitle">{patient ? `${patient.full_name} · ${patient.lapid}` : sample.lapid}</p>
+          <p className="list-subtitle">{patient ? `${patient.full_name} · ${patient.labid}` : sample.labid}</p>
         </div>
         <div className="patient-detail__actions">
           <Badge status={currentStatusBadge}>{sample.status.replace(/_/g, ' ')}</Badge>
@@ -261,7 +174,7 @@ export function SampleDetailPage() {
             <h3>Patient</h3>
             <dl className="detail-list">
               <div><dt>Name</dt><dd>{patient?.full_name ?? '-'}</dd></div>
-              <div><dt>LAPID</dt><dd className="table-id">{sample.lapid}</dd></div>
+              <div><dt>LABID</dt><dd className="table-id">{sample.labid}</dd></div>
               <div><dt>Phone</dt><dd>{patient?.phone ?? '-'}</dd></div>
             </dl>
           </article>
@@ -347,25 +260,6 @@ export function SampleDetailPage() {
             )}
           </article>
 
-          {/* QR Scanner panel */}
-          <article className="detail-card">
-            <h3>QR Workstation Scanner</h3>
-            <p style={{ color: 'var(--color-text-secondary)', fontSize: 13, marginBottom: 12 }}>
-              Scan a workstation QR code to log your check-in and auto-update sample status.
-            </p>
-            <Button variant="secondary" onClick={() => setScannerOpen(true)}>
-              Start Scanner
-            </Button>
-          </article>
-
-          {scannerOpen ? (
-            <QRScanner
-              title="Scan Workstation QR"
-              scannerId="sample-detail-scanner"
-              onScan={(v) => void handleQrScan(v)}
-              onClose={() => setScannerOpen(false)}
-            />
-          ) : null}
         </div>
       </div>
 

@@ -1,5 +1,3 @@
-import { db } from './db'
-
 const TIMEOUT_MS = 8_000
 
 /**

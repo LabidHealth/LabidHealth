@@ -83,7 +83,7 @@ describe('ResultApprovalPage', () => {
     mocks.resultGet.mockResolvedValue({
       id: 'result-1',
       sample_id: 'sample-1',
-      lapid: 'LA-2026-00001',
+      labid: 'LB-2026-00001',
       lab_id: 'lab-1',
       test_type: 'FBC',
       parameters: {},
@@ -102,7 +102,7 @@ describe('ResultApprovalPage', () => {
     })
     mocks.patientFirst.mockResolvedValue({
       id: 'patient-1',
-      lapid: 'LA-2026-00001',
+      labid: 'LB-2026-00001',
       full_name: 'Ada Lovelace',
       phone: '08000000000',
       consent: true,
@@ -112,7 +112,7 @@ describe('ResultApprovalPage', () => {
     mocks.sampleFirst.mockResolvedValue({
       id: 'sample-row',
       sample_id: 'sample-1',
-      lapid: 'LA-2026-00001',
+      labid: 'LB-2026-00001',
       lab_id: 'lab-1',
       status: 'awaiting_approval',
       is_stat: false,
@@ -127,7 +127,7 @@ describe('ResultApprovalPage', () => {
     })
     mocks.labGet.mockResolvedValue({
       id: 'lab-1',
-      name: 'Labora',
+      name: 'Labid',
       mlscn_no: '1234',
       pdf_footer: '',
       pdf_disclaimer: '',

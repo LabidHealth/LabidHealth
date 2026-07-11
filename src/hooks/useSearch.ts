@@ -34,7 +34,7 @@ export function useSearch() {
 
       // Search patients
       const patients = await db.patients
-        .filter((p) => p.full_name.toLowerCase().includes(q) || p.lapid.toLowerCase().includes(q) || (typeof p.phone === 'string' && p.phone.includes(q)))
+        .filter((p) => p.full_name.toLowerCase().includes(q) || p.labid.toLowerCase().includes(q) || (typeof p.phone === 'string' && p.phone.includes(q)))
         .limit(5)
         .toArray()
 
@@ -43,7 +43,7 @@ export function useSearch() {
           type: 'patient',
           id: p.id,
           title: p.full_name,
-          subtitle: p.lapid,
+          subtitle: p.labid,
           url: `/app/patients/${p.id}`
         })
       }
@@ -59,7 +59,7 @@ export function useSearch() {
           type: 'sample',
           id: s.id,
           title: s.sample_id,
-          subtitle: s.lapid,
+          subtitle: s.labid,
           url: `/app/samples/${s.id}`
         })
       }
@@ -75,7 +75,7 @@ export function useSearch() {
           type: 'result',
           id: r.id,
           title: r.test_type,
-          subtitle: r.lapid,
+          subtitle: r.labid,
           url: `/app/results/${r.id}`
         })
       }
@@ -91,7 +91,7 @@ export function useSearch() {
           type: 'invoice',
           id: i.id,
           title: i.invoice_id,
-          subtitle: i.lapid,
+          subtitle: i.labid,
           url: `/app/billing/${i.id}`
         })
       }

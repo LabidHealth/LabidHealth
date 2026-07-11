@@ -1,6 +1,6 @@
 import React from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Layout, Activity, FileText, Box, DollarSign, Settings } from 'lucide-react'
+import { Layout, Activity, FileText, DollarSign, Settings } from 'lucide-react'
 
 const navItems = [
   { path: '/app', icon: Layout, label: 'Home' },

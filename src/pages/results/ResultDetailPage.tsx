@@ -49,7 +49,7 @@ function DeliveryStatusSection({
           table: 'notifications',
           filter: `result_id=eq.${resultId}`
         },
-        async (payload) => {
+        async () => {
           if (!mounted) return
           // Refresh from IndexedDB when Supabase syncs
           const fresh = await getDeliveryStatus(resultId)
@@ -165,7 +165,7 @@ export function ResultDetailPage() {
       if (!mounted || !record) return
       setResult(record)
       const [patientRecord, sampleRecord] = await Promise.all([
-        db.patients.where('lapid').equals(record.lapid).first(),
+        db.patients.where('labid').equals(record.labid).first(),
         db.samples.where('sample_id').equals(record.sample_id).first()
       ])
       if (!mounted) return
@@ -210,7 +210,7 @@ export function ResultDetailPage() {
         <div>
           <h2>{result.test_type}</h2>
           <p className="list-subtitle">
-            <span className="table-id">{result.lapid}</span>
+            <span className="table-id">{result.labid}</span>
             {patient ? ` · ${patient.full_name}` : ''}
           </p>
         </div>

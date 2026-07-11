@@ -3,11 +3,20 @@ import { useParams } from 'react-router-dom'
 import { CheckCircle, XCircle, AlertTriangle, FileText, Loader2 } from 'lucide-react'
 import { Button, EmptyState } from '@/components/ui'
 
+type VerifiedResult = {
+  id: string
+  patient_name?: string
+  labid?: string
+  test_type?: string
+  status: string
+  approved_at: string
+}
+
 export function VerifyResultPage() {
   const { token } = useParams()
   const [loading, setLoading] = useState(true)
   const [verified, setVerified] = useState<boolean | null>(null)
-  const [result, setResult] = useState<any>(null)
+  const [result, setResult] = useState<VerifiedResult | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -32,7 +41,7 @@ export function VerifyResultPage() {
         setVerified(true)
         setResult(data.result)
         setLoading(false)
-      } catch (err) {
+      } catch {
         setVerified(false)
         setError('Failed to connect to verification server')
         setLoading(false)
@@ -61,8 +70,8 @@ export function VerifyResultPage() {
           headline={error?.includes('expired') ? 'Link Expired' : 'Verification Failed'}
           description={error || 'This result could not be verified'}
           cta={
-            <Button variant="secondary" onClick={() => window.location.href = 'https://laboraai.com'}>
-              Return to Labora AI
+            <Button variant="secondary" onClick={() => window.location.href = 'https://labidhealth.com'}>
+              Return to Labid Health
             </Button>
           }
         />
@@ -78,8 +87,8 @@ export function VerifyResultPage() {
           headline="Result Not Found"
           description="This result could not be found or may have been deleted."
           cta={
-            <Button variant="secondary" onClick={() => window.location.href = 'https://laboraai.com'}>
-              Return to Labora AI
+            <Button variant="secondary" onClick={() => window.location.href = 'https://labidhealth.com'}>
+              Return to Labid Health
             </Button>
           }
         />
@@ -93,8 +102,8 @@ export function VerifyResultPage() {
         <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 80, height: 80, background: '#00875A', borderRadius: '50%', marginBottom: 16 }}>
           <CheckCircle size={48} style={{ color: '#FFFFFF' }} />
         </div>
-        <h1 style={{ fontSize: 28, color: '#003D28', margin: '0 0 8px 0 }}>Result Verified</h1>
-        <p style={{ fontSize: 16, color: '#4A4A4A', margin: 0 }}>This is an authentic laboratory result from Labora AI</p>
+        <h1 style={{ fontSize: 28, color: '#003D28', margin: '0 0 8px 0' }}>Result Verified</h1>
+        <p style={{ fontSize: 16, color: '#4A4A4A', margin: 0 }}>This is an authentic laboratory result from Labid Health</p>
       </div>
 
       <div style={{ background: '#FFFFFF', border: '2px solid #00875A', borderRadius: 12, padding: 24, marginBottom: 24 }}>
@@ -107,8 +116,8 @@ export function VerifyResultPage() {
             <div style={{ fontSize: 16, marginTop: 4 }}>{result.patient_name || '—'}</div>
           </div>
           <div>
-            <strong style={{ fontSize: 12, color: '#4A4A4A', textTransform: 'uppercase' }}>LAPID</strong>
-            <div style={{ fontSize: 16, marginTop: 4, fontFamily: 'monospace' }}>{result.lapid || '—'}</div>
+            <strong style={{ fontSize: 12, color: '#4A4A4A', textTransform: 'uppercase' }}>LABID</strong>
+            <div style={{ fontSize: 16, marginTop: 4, fontFamily: 'monospace' }}>{result.labid || '—'}</div>
           </div>
           <div>
             <strong style={{ fontSize: 12, color: '#4A4A4A', textTransform: 'uppercase' }}>Test Type</strong>
@@ -139,14 +148,14 @@ export function VerifyResultPage() {
       <div style={{ background: '#E8F5E9', border: '1px solid #00875A', borderRadius: 8, padding: 16, fontSize: 13, color: '#003D28' }}>
         <p style={{ margin: '0 0 8px 0', fontWeight: 600 }}>Verification Details</p>
         <ul style={{ margin: 0, paddingLeft: 20, color: '#4A4A4A' }}>
-          <li>Digitally signed by Labora AI Laboratory</li>
+          <li>Digitally signed by Labid Health Laboratory</li>
           <li>Result ID: <code style={{ background: '#FFFFFF', padding: '2px 6px', borderRadius: 3 }}>{result.id}</code></li>
           <li>Approved on: {new Date(result.approved_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</li>
         </ul>
       </div>
 
       <footer style={{ marginTop: 32, paddingTop: 16, borderTop: '1px solid #E0E0E0', fontSize: 12, color: '#4A4A4A', textAlign: 'center' }}>
-        <p style={{ margin: 0 }}>Labora AI Laboratory Management System</p>
+        <p style={{ margin: 0 }}>Labid Health Laboratory Management System</p>
       </footer>
     </div>
   )

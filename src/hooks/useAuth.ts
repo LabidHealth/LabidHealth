@@ -5,9 +5,9 @@ import { db } from '@/lib/db'
 import { writeRecord } from '@/lib/writeRecord'
 import type { LabStaff, UserRole } from '@/types'
 
-const ROLE_STORAGE_KEY = 'labora-ai-user-role'
-const LAB_STORAGE_KEY = 'labora-ai-lab-id'
-const MFA_STORAGE_KEY = 'labora-ai-mfa-verified'
+const ROLE_STORAGE_KEY = 'labid-health-user-role'
+const LAB_STORAGE_KEY = 'labid-health-lab-id'
+const MFA_STORAGE_KEY = 'labid-health-mfa-verified'
 
 export type MfaState = 'checking' | 'not_required' | 'setup_required' | 'verify_required' | 'verified'
 

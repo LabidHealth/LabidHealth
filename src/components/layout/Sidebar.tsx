@@ -8,7 +8,6 @@ import {
   HelpCircle,
   LayoutDashboard,
   LogOut,
-  Package,
   Settings,
   Users
 } from 'lucide-react'
@@ -29,7 +28,6 @@ const navItems: NavItem[] = [
   { label: 'Sample Tracking', path: '/app/samples', icon: FlaskConical, mobile: true },
   { label: 'Results', path: '/app/results', icon: FileText, hideFor: ['front_desk'], mobile: true },
   { label: 'Billing', path: '/app/billing', icon: CreditCard, hideFor: ['manager', 'scientist'], mobile: true },
-  { label: 'Inventory', path: '/app/inventory', icon: Package, hideFor: ['front_desk', 'scientist'] },
   { label: 'Reports', path: '/app/reports', icon: BarChart2, hideFor: ['front_desk', 'scientist'] },
   { label: 'Settings', path: '/app/settings', icon: Settings, hideFor: ['front_desk', 'scientist'] }
 ]
@@ -59,14 +57,14 @@ export function Sidebar() {
     <>
       <nav className="sidebar" aria-label="Primary">
         <div className="sidebar__brand">
-          <p className="sidebar__brand-title">Labora AI</p>
+          <p className="sidebar__brand-title">Labid Health</p>
           <p className="sidebar__brand-meta">{labId ? `LAB ${labId.slice(0, 8).toUpperCase()}` : 'ACTIVE LAB'}</p>
         </div>
         <div className="sidebar__nav">
           <NavItems items={visibleItems} />
         </div>
         <div className="sidebar__footer">
-          <button type="button" className="nav-item" onClick={() => window.open('mailto:support@labora.ai', '_blank')}>
+          <button type="button" className="nav-item" onClick={() => window.open('mailto:support@labidhealth.com', '_blank')}>
             <HelpCircle />
             <span>Support</span>
           </button>

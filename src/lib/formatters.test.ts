@@ -3,7 +3,7 @@ import {
   formatDate,
   formatDateTime,
   formatInvoiceID,
-  formatLAPID,
+  formatLABID,
   formatNaira,
   formatPhone,
   formatSampleID,
@@ -17,9 +17,9 @@ describe('formatters', () => {
     expect(formatNaira(1_820_000_00)).toBe('₦1.82M')
   })
 
-  it('formats LAPID correctly', () => {
-    expect(formatLAPID('la202500847')).toBe('LA-2025-00847')
-    expect(formatLAPID('LA-2024-1')).toBe('LA-2024-00001')
+  it('formats LABID correctly', () => {
+    expect(formatLABID('la202500847')).toBe('LB-2025-00847')
+    expect(formatLABID('LB-2024-1')).toBe('LB-2024-00001')
   })
 
   it('formats Nigerian phone numbers', () => {

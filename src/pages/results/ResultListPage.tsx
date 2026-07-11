@@ -73,28 +73,28 @@ export function ResultListPage() {
     return () => { mounted = false }
   }, [])
 
-  const patientByLapid = new Map(patients.map((p) => [p.lapid, p]))
+  const patientByLabid = new Map(patients.map((p) => [p.labid, p]))
 
   const pendingRows: ResultRow[] = results
     .filter((r) => r.status === 'awaiting_approval')
     .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()) // oldest first
-    .map((r) => ({ result: r, patient: patientByLapid.get(r.lapid) }))
+    .map((r) => ({ result: r, patient: patientByLabid.get(r.labid) }))
 
   const allRows: ResultRow[] = results
     .filter((r) => {
       if (statusFilter !== 'all' && r.status !== statusFilter) return false
       if (search) {
         const q = search.toLowerCase()
-        const patient = patientByLapid.get(r.lapid)
+        const patient = patientByLabid.get(r.labid)
         return (
-          r.lapid.toLowerCase().includes(q) ||
+          r.labid.toLowerCase().includes(q) ||
           r.test_type.toLowerCase().includes(q) ||
           (patient?.full_name.toLowerCase().includes(q) ?? false)
         )
       }
       return true
     })
-    .map((r) => ({ result: r, patient: patientByLapid.get(r.lapid) }))
+    .map((r) => ({ result: r, patient: patientByLabid.get(r.labid) }))
 
   async function handleAmend() {
     if (!amendTarget || !amendReason.trim()) {
@@ -188,7 +188,7 @@ export function ResultListPage() {
             <TableHead>
               <tr>
                 <th>Patient</th>
-                <th>LAPID</th>
+                <th>LABID</th>
                 <th>Test Type</th>
                 <th>Scientist</th>
                 <th>Time Since Entry</th>
@@ -204,7 +204,7 @@ export function ResultListPage() {
                       <span>{patient?.full_name ?? 'Unknown'}</span>
                     </div>
                   </TableCell>
-                  <TableCell className="table-id">{result.lapid}</TableCell>
+                  <TableCell className="table-id">{result.labid}</TableCell>
                   <TableCell>{result.test_type}</TableCell>
                   <TableCell>
                     <span style={{ color: 'var(--color-text-secondary)', fontSize: 12 }}>
@@ -248,7 +248,7 @@ export function ResultListPage() {
               <option value="amended">Amended</option>
             </select>
             <Input
-              placeholder="Search patient, LAPID, test…"
+              placeholder="Search patient, LABID, test…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -261,7 +261,7 @@ export function ResultListPage() {
               <TableHead>
                 <tr>
                   <th>Patient</th>
-                  <th>LAPID</th>
+                  <th>LABID</th>
                   <th>Test Type</th>
                   <th>Status</th>
                   <th>Approved By</th>
@@ -278,7 +278,7 @@ export function ResultListPage() {
                         <span>{patient?.full_name ?? 'Unknown'}</span>
                       </div>
                     </TableCell>
-                    <TableCell className="table-id">{result.lapid}</TableCell>
+                    <TableCell className="table-id">{result.labid}</TableCell>
                     <TableCell>
                       {result.test_type}
                       {result.status === 'amended' ? (

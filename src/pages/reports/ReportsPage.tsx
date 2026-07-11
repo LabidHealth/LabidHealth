@@ -6,7 +6,7 @@ import { db } from '@/lib/db'
 import { formatDate } from '@/lib/formatters'
 import { friendlyError } from '@/lib/supabaseQuery'
 
-type ReportType = 'revenue' | 'test_volume' | 'inventory' | 'patient'
+type ReportType = 'revenue' | 'test_volume' | 'patient'
 
 interface ReportCard {
   type: ReportType
@@ -18,7 +18,6 @@ interface ReportCard {
 const REPORT_CARDS: ReportCard[] = [
   { type: 'revenue', title: 'Revenue Report', description: 'Total income, outstanding, and payment method breakdown for the selected period.', ownerOnly: true },
   { type: 'test_volume', title: 'Test Volume Report', description: 'Number of tests performed by type and category for the selected period.' },
-  { type: 'inventory', title: 'Inventory Usage Report', description: 'Stock usage, restock events, and low stock alerts for the selected period.' },
   { type: 'patient', title: 'Patient Report', description: 'New patient registrations and visit frequency for the selected period.' }
 ]
 
@@ -138,7 +137,6 @@ export function ReportsPage() {
   const [dates, setDates] = useState<Record<ReportType, { from: string; to: string }>>({
     revenue: { from: defaultFrom, to: defaultTo },
     test_volume: { from: defaultFrom, to: defaultTo },
-    inventory: { from: defaultFrom, to: defaultTo },
     patient: { from: defaultFrom, to: defaultTo }
   })
   const [generating, setGenerating] = useState<ReportType | null>(null)
@@ -155,7 +153,7 @@ export function ReportsPage() {
   async function generateRevenue(from: Date, to: Date) {
     const invoices = (await db.invoices.toArray()).filter((invoice) => inRange(invoice.created_at, from, toEndOfDay(to)))
     const patients = await db.patients.toArray()
-    const patientMap = new Map(patients.map((patient) => [patient.lapid, patient.full_name]))
+    const patientMap = new Map(patients.map((patient) => [patient.labid, patient.full_name]))
     const { labName, labAddress } = await getLabInfo()
     const period = `${format(from, 'dd MMM yyyy')} - ${format(to, 'dd MMM yyyy')}`
     const generatedAt = format(new Date(), 'dd MMM yyyy, hh:mm a')
@@ -190,7 +188,7 @@ export function ReportsPage() {
           {invoices.slice(0, 100).map((invoice) => (
             <View key={invoice.id} style={styles.tableRow}>
               <Text style={styles.c1}>#{invoice.invoice_id}</Text>
-              <Text style={styles.c2}>{patientMap.get(invoice.lapid) ?? invoice.lapid}</Text>
+              <Text style={styles.c2}>{patientMap.get(invoice.labid) ?? invoice.labid}</Text>
               <Text style={styles.c3}>{formatKobo(invoice.total)}</Text>
               <Text style={styles.c3}>{formatKobo(invoice.amount_paid)}</Text>
               <Text style={styles.c2}>{invoice.status}</Text>
@@ -244,46 +242,6 @@ export function ReportsPage() {
     return { blob, filename: `test-volume-${format(from, 'yyyy-MM-dd')}.pdf` }
   }
 
-  async function generateInventory(from: Date, to: Date) {
-    const items = await db.inventory.toArray()
-    const events = (await db.inventory_events.toArray()).filter((event) => inRange(event.created_at, from, toEndOfDay(to)))
-    const { labName, labAddress } = await getLabInfo()
-    const period = `${format(from, 'dd MMM yyyy')} - ${format(to, 'dd MMM yyyy')}`
-    const generatedAt = format(new Date(), 'dd MMM yyyy, hh:mm a')
-    const itemMap = new Map(items.map((item) => [item.id, item.item_name]))
-    const usageCost = events.filter((event) => event.event_type === 'usage').reduce((sum, event) => sum + event.unit_cost * event.quantity, 0)
-    const { pdf, Document, Page, Text, View, styles, PdfHeader, PdfFooter } = await loadPdfTools()
-
-    const blob = await pdf(
-      <Document>
-        <Page size="A4" style={styles.page}>
-          <PdfHeader labName={labName} labAddress={labAddress} reportTitle="INVENTORY REPORT" period={period} generatedAt={generatedAt} />
-          <Text style={styles.section}>Summary</Text>
-          <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Total Events</Text><Text style={styles.summaryValue}>{events.length}</Text></View>
-          <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Total Usage Cost</Text><Text style={styles.summaryValue}>{formatKobo(usageCost)}</Text></View>
-          <Text style={styles.section}>Events</Text>
-          <View style={styles.tableHead}>
-            <Text style={[styles.c1, styles.cHead]}>Item</Text>
-            <Text style={[styles.c2, styles.cHead]}>Type</Text>
-            <Text style={[styles.c3, styles.cHead]}>Qty</Text>
-            <Text style={[styles.c3, styles.cHead]}>Cost</Text>
-          </View>
-          {events.slice(0, 100).map((event) => (
-            <View key={event.id} style={styles.tableRow}>
-              <Text style={styles.c1}>{itemMap.get(event.item_id) ?? event.item_id.slice(0, 8)}</Text>
-              <Text style={styles.c2}>{event.event_type}</Text>
-              <Text style={styles.c3}>{event.quantity}</Text>
-              <Text style={styles.c3}>{formatKobo(event.unit_cost * event.quantity)}</Text>
-            </View>
-          ))}
-          <PdfFooter labName={labName} generatedAt={generatedAt} />
-        </Page>
-      </Document>
-    ).toBlob()
-
-    return { blob, filename: `inventory-report-${format(from, 'yyyy-MM-dd')}.pdf` }
-  }
-
   async function generatePatient(from: Date, to: Date) {
     const patients = (await db.patients.toArray()).filter((patient) => inRange(patient.created_at, from, toEndOfDay(to)))
     const visits = await db.patient_visits.toArray()
@@ -292,7 +250,7 @@ export function ReportsPage() {
     const generatedAt = format(new Date(), 'dd MMM yyyy, hh:mm a')
     const visitCounts = new Map<string, number>()
 
-    for (const visit of visits) visitCounts.set(visit.lapid, (visitCounts.get(visit.lapid) ?? 0) + 1)
+    for (const visit of visits) visitCounts.set(visit.labid, (visitCounts.get(visit.labid) ?? 0) + 1)
 
     const { pdf, Document, Page, Text, View, styles, PdfHeader, PdfFooter } = await loadPdfTools()
     const blob = await pdf(
@@ -304,15 +262,15 @@ export function ReportsPage() {
           <Text style={styles.section}>Patients Registered</Text>
           <View style={styles.tableHead}>
             <Text style={[styles.c1, styles.cHead]}>Full Name</Text>
-            <Text style={[styles.c2, styles.cHead]}>LAPID</Text>
+            <Text style={[styles.c2, styles.cHead]}>LABID</Text>
             <Text style={[styles.c3, styles.cHead]}>Visits</Text>
             <Text style={[styles.c2, styles.cHead]}>Registered</Text>
           </View>
           {patients.slice(0, 100).map((patient) => (
             <View key={patient.id} style={styles.tableRow}>
               <Text style={styles.c1}>{patient.full_name}</Text>
-              <Text style={styles.c2}>{patient.lapid}</Text>
-              <Text style={styles.c3}>{visitCounts.get(patient.lapid) ?? 0}</Text>
+              <Text style={styles.c2}>{patient.labid}</Text>
+              <Text style={styles.c3}>{visitCounts.get(patient.labid) ?? 0}</Text>
               <Text style={styles.c2}>{format(new Date(patient.created_at), 'dd MMM yyyy')}</Text>
             </View>
           ))}
@@ -346,8 +304,6 @@ export function ReportsPage() {
             ? await generateRevenue(from, to)
             : type === 'test_volume'
             ? await generateTestVolume(from, to)
-            : type === 'inventory'
-            ? await generateInventory(from, to)
             : await generatePatient(from, to)
 
         downloadBlob(result.filename, result.blob)
@@ -358,13 +314,13 @@ export function ReportsPage() {
         if (type === 'revenue') {
           const invoices = (await db.invoices.toArray()).filter((invoice) => inRange(invoice.created_at, from, rangeEnd))
           const patients = await db.patients.toArray()
-          const patientMap = new Map(patients.map((patient) => [patient.lapid, patient.full_name]))
-          const rows: string[][] = [['Invoice ID', 'Patient', 'LAPID', 'Total (N)', 'Paid (N)', 'Outstanding (N)', 'Status', 'Date']]
+          const patientMap = new Map(patients.map((patient) => [patient.labid, patient.full_name]))
+          const rows: string[][] = [['Invoice ID', 'Patient', 'LABID', 'Total (N)', 'Paid (N)', 'Outstanding (N)', 'Status', 'Date']]
           for (const invoice of invoices) {
             rows.push([
               invoice.invoice_id,
-              patientMap.get(invoice.lapid) ?? invoice.lapid,
-              invoice.lapid,
+              patientMap.get(invoice.labid) ?? invoice.labid,
+              invoice.labid,
               String(invoice.total / 100),
               String(invoice.amount_paid / 100),
               String(invoice.outstanding / 100),
@@ -382,27 +338,11 @@ export function ReportsPage() {
           const rows: string[][] = [['Test Name', 'Count']]
           for (const [test, count] of Array.from(testCounts.entries()).sort((a, b) => b[1] - a[1])) rows.push([test, String(count)])
           downloadCsv(`test-volume-${fromStr}.csv`, rows)
-        } else if (type === 'inventory') {
-          const items = await db.inventory.toArray()
-          const itemMap = new Map(items.map((item) => [item.id, item.item_name]))
-          const events = (await db.inventory_events.toArray()).filter((event) => inRange(event.created_at, from, rangeEnd))
-          const rows: string[][] = [['Item', 'Event Type', 'Quantity', 'Unit Cost (N)', 'Total Cost (N)', 'Date']]
-          for (const event of events) {
-            rows.push([
-              itemMap.get(event.item_id) ?? event.item_id,
-              event.event_type,
-              String(event.quantity),
-              String(event.unit_cost / 100),
-              String((event.unit_cost * event.quantity) / 100),
-              formatDate(event.created_at)
-            ])
-          }
-          downloadCsv(`inventory-${fromStr}.csv`, rows)
         } else {
           const patients = (await db.patients.toArray()).filter((patient) => inRange(patient.created_at, from, rangeEnd))
-          const rows: string[][] = [['Full Name', 'LAPID', 'Gender', 'Phone', 'Registered']]
+          const rows: string[][] = [['Full Name', 'LABID', 'Gender', 'Phone', 'Registered']]
           for (const patient of patients) {
-            rows.push([patient.full_name, patient.lapid, patient.gender ?? '', patient.phone, formatDate(patient.created_at)])
+            rows.push([patient.full_name, patient.labid, patient.gender ?? '', patient.phone, formatDate(patient.created_at)])
           }
           downloadCsv(`patients-${fromStr}.csv`, rows)
         }

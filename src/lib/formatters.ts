@@ -17,11 +17,11 @@ export function formatNaira(kobo: number): string {
   return nairaFormatter.format(naira)
 }
 
-export function formatLAPID(raw: string): string {
+export function formatLABID(raw: string): string {
   const cleaned = raw.toUpperCase().replace(/[^0-9]/g, '')
   const year = cleaned.slice(0, 4) || new Date().getFullYear().toString()
   const seq = cleaned.slice(4).padStart(5, '0').slice(0, 5)
-  return `LA-${year}-${seq}`
+  return `LB-${year}-${seq}`
 }
 
 export function formatPhone(raw: string): string {

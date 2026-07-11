@@ -1,5 +1,5 @@
 -- =============================================================================
--- Labora AI — Row-Level Security Policies
+-- Labid Health — Row-Level Security Policies
 -- =============================================================================
 -- Apply with: supabase db push  (or paste into Supabase SQL Editor)
 -- All tables use the same helper: current user must belong to the same lab.
@@ -76,7 +76,7 @@ CREATE POLICY "staff_can_read_patients"
   USING (
     EXISTS (
       SELECT 1 FROM public.samples s
-      WHERE s.lapid = patients.lapid AND s.lab_id = auth.lab_id()
+      WHERE s.labid = patients.labid AND s.lab_id = auth.lab_id()
     )
     OR
     EXISTS (

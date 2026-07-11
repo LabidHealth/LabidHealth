@@ -55,7 +55,7 @@ export function InvoiceListPage() {
     return () => { mounted = false }
   }, [])
 
-  const patientByLapid = useMemo(() => new Map(patients.map((p) => [p.lapid, p])), [patients])
+  const patientByLabid = useMemo(() => new Map(patients.map((p) => [p.labid, p])), [patients])
 
   // Daily reconciliation (today, owner only)
   const todayReconciliation = useMemo(() => {
@@ -72,16 +72,16 @@ export function InvoiceListPage() {
     return invoices.filter((inv) => {
       if (tab !== 'all' && inv.status !== tab) return false
       if (q) {
-        const patient = patientByLapid.get(inv.lapid)
+        const patient = patientByLabid.get(inv.labid)
         return (
           inv.invoice_id.toLowerCase().includes(q) ||
-          inv.lapid.toLowerCase().includes(q) ||
+          inv.labid.toLowerCase().includes(q) ||
           (patient?.full_name.toLowerCase().includes(q) ?? false)
         )
       }
       return true
     })
-  }, [invoices, tab, search, patientByLapid])
+  }, [invoices, tab, search, patientByLabid])
 
   return (
     <section>
@@ -92,7 +92,7 @@ export function InvoiceListPage() {
         </div>
         <div className="list-actions">
           <Input
-            placeholder="Search invoice, patient, LAPID…"
+            placeholder="Search invoice, patient, LABID…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -146,13 +146,13 @@ export function InvoiceListPage() {
           </TableHead>
           <TableBody>
             {filtered.map((inv) => {
-              const patient = patientByLapid.get(inv.lapid)
+              const patient = patientByLabid.get(inv.labid)
               const testNames = inv.line_items.slice(0, 2).map((l) => l.test_name).join(', ')
               const extra = inv.line_items.length > 2 ? ` +${inv.line_items.length - 2} more` : ''
               return (
                 <TableRow key={inv.id} onClick={() => navigate(`/app/billing/${inv.id}`)}>
                   <TableCell className="table-id">#{inv.invoice_id}</TableCell>
-                  <TableCell>{patient?.full_name ?? inv.lapid}</TableCell>
+                  <TableCell>{patient?.full_name ?? inv.labid}</TableCell>
                   <TableCell>
                     <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>{testNames}{extra}</span>
                   </TableCell>

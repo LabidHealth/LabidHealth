@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { Search } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Badge, Button, EmptyState, Input, Table, TableBody, TableCell, TableHead, TableRow } from '@/components/ui'
-import { QRScanner } from '@/components/shared/QRScanner'
 import { db } from '@/lib/db'
 import { formatTimeAgo } from '@/lib/formatters'
 import type { Patient, Sample } from '@/types'
@@ -24,23 +23,6 @@ export function SampleListPage() {
   const [filter, setFilter] = useState<StatusFilter>('received')
   const [range, setRange] = useState<'today' | 'week'>('today')
   const [search, setSearch] = useState('')
-  const [scannerOpen, setScannerOpen] = useState(false)
-
-  function handleScanToFind(value: string) {
-    setScannerOpen(false)
-    const trimmed = value.trim().toLowerCase()
-    // Match against sample_id, lapid, or patient name
-    const match = samples.find(
-      (s) =>
-        s.sample_id.toLowerCase() === trimmed ||
-        s.lapid.toLowerCase() === trimmed
-    )
-    if (match) {
-      navigate(`/app/samples/${match.id}`)
-    } else {
-      setSearch(value.trim())
-    }
-  }
 
   useEffect(() => {
     let mounted = true
@@ -77,24 +59,24 @@ export function SampleListPage() {
     start.setHours(0, 0, 0, 0)
     if (range === 'week') start.setDate(now.getDate() - 7)
 
-    const patientByLapid = new Map(patients.map((p) => [p.lapid, p]))
+    const patientByLabid = new Map(patients.map((p) => [p.labid, p]))
 
     return samples
       .filter((sample) => sample.status === filter)
       .filter((sample) => new Date(sample.collected_at).getTime() >= start.getTime())
       .filter((sample) => {
         if (!lowered) return true
-        const patient = patientByLapid.get(sample.lapid)
+        const patient = patientByLabid.get(sample.labid)
         const patientName = patient?.full_name?.toLowerCase() ?? ''
         return (
           sample.sample_id.toLowerCase().includes(lowered) ||
-          sample.lapid.toLowerCase().includes(lowered) ||
+          sample.labid.toLowerCase().includes(lowered) ||
           patientName.includes(lowered)
         )
       })
   }, [filter, patients, range, samples, search])
 
-  const patientByLapid = useMemo(() => new Map(patients.map((p) => [p.lapid, p])), [patients])
+  const patientByLabid = useMemo(() => new Map(patients.map((p) => [p.labid, p])), [patients])
 
   return (
     <section>
@@ -108,23 +90,11 @@ export function SampleListPage() {
             <Search className="header-icon" />
             <Input className="search-input" value={search} placeholder="Search Sample ID or patient" onChange={(e) => setSearch(e.target.value)} />
           </div>
-          <Button variant="secondary" onClick={() => setScannerOpen(true)}>
-            Scan
-          </Button>
           <Button variant="primary" onClick={() => navigate('/app/samples/register')}>
             Register sample
           </Button>
         </div>
       </header>
-
-      {scannerOpen ? (
-        <QRScanner
-          title="Scan to Find Sample"
-          scannerId="sample-list-scanner"
-          onScan={handleScanToFind}
-          onClose={() => setScannerOpen(false)}
-        />
-      ) : null}
 
       <div className="dashboard-row">
         {PIPELINE.map((stage) => {
@@ -172,7 +142,7 @@ export function SampleListPage() {
           </TableHead>
           <TableBody>
             {filtered.map((sample) => {
-              const patient = patientByLapid.get(sample.lapid)
+              const patient = patientByLabid.get(sample.labid)
               const testsLabel =
                 sample.tests_ordered.length > 3
                   ? `${sample.tests_ordered.slice(0, 2).join(', ')} +${sample.tests_ordered.length - 2} more`
@@ -184,7 +154,7 @@ export function SampleListPage() {
                   onClick={() => navigate(`/app/samples/${sample.id}`)}
                 >
                   <TableCell className="table-id">#{sample.sample_id}</TableCell>
-                  <TableCell>{patient ? `${patient.full_name} (${patient.lapid})` : sample.lapid}</TableCell>
+                  <TableCell>{patient ? `${patient.full_name} (${patient.labid})` : sample.labid}</TableCell>
                   <TableCell>{testsLabel}</TableCell>
                   <TableCell>
                     <Badge status={sample.status === 'awaiting_approval' ? 'AWAITING APPROVAL' : (sample.status.toUpperCase() as 'RECEIVED' | 'PROCESSING' | 'READY' | 'DELIVERED')}>

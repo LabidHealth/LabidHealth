@@ -13,7 +13,7 @@ const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 const WA_PHONE_ID = Deno.env.get('WHATSAPP_PHONE_NUMBER_ID')!
 const WA_TOKEN = Deno.env.get('WHATSAPP_ACCESS_TOKEN')!
 const TERMII_KEY = Deno.env.get('TERMII_API_KEY')!
-const TERMII_SENDER = Deno.env.get('TERMII_SENDER_ID') ?? 'LaboraAI'
+const TERMII_SENDER = Deno.env.get('TERMII_SENDER_ID') ?? 'LabidHealth'
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
@@ -96,7 +96,7 @@ serve(async (req) => {
     const { data: patient } = await supabase
       .from('patients')
       .select('full_name, phone')
-      .eq('lapid', notification.lapid)
+      .eq('labid', notification.labid)
       .single()
 
     const phone = notification.recipient_phone ?? patient?.phone

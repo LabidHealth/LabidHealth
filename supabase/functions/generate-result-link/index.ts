@@ -1,6 +1,6 @@
 // Supabase Edge Function — generate-result-link
 // Generates a signed JWT token for secure patient result access.
-// The token includes result_id, lapid, and expiration time.
+// The token includes result_id, labid, and expiration time.
 //
 // Deploy: supabase functions deploy generate-result-link
 // Secrets: JWT_SECRET
@@ -17,7 +17,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 interface RequestBody {
   result_id: string
-  lapid: string
+  labid: string
 }
 
 serve(async (req) => {
@@ -27,18 +27,18 @@ serve(async (req) => {
 
   try {
     const body: RequestBody = await req.json()
-    const { result_id, lapid } = body
+    const { result_id, labid } = body
 
-    if (!result_id || !lapid) {
-      return new Response('Missing result_id or lapid', { status: 400 })
+    if (!result_id || !labid) {
+      return new Response('Missing result_id or labid', { status: 400 })
     }
 
     // Verify the result exists
     const { data: result, error } = await supabase
       .from('results')
-      .select('id, lapid, status, pdf_url')
+      .select('id, labid, status, pdf_url')
       .eq('id', result_id)
-      .eq('lapid', lapid)
+      .eq('labid', labid)
       .single()
 
     if (error || !result) {
@@ -53,7 +53,7 @@ serve(async (req) => {
     const secretKey = new TextEncoder().encode(JWT_SECRET)
     const token = await new SignJWT({
       result_id: result.id,
-      lapid: result.lapid,
+      labid: result.labid,
       pdf_url: result.pdf_url
     })
       .setProtectedHeader({ alg: 'HS256' })

@@ -1,9 +1,9 @@
 import React from 'react'
 import { Document, Image, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
 
-interface LapidCardPDFProps {
+interface LabidCardPDFProps {
   patientName: string
-  lapid: string
+  labid: string
   qrDataUrl: string
   labName?: string
 }
@@ -30,7 +30,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     textTransform: 'uppercase'
   },
-  lapid: {
+  labid: {
     fontSize: 18,
     fontFamily: 'Courier',
     color: '#003D28',
@@ -53,17 +53,17 @@ const styles = StyleSheet.create({
   }
 })
 
-export function LapidCardPDF({ patientName, lapid, qrDataUrl, labName = 'Labora AI Lab' }: LapidCardPDFProps) {
+export function LabidCardPDF({ patientName, labid, qrDataUrl, labName = 'Labid Health Lab' }: LabidCardPDFProps) {
   return (
     <Document>
       <Page size={{ width: 360, height: 220 }} style={styles.page}>
         <View style={styles.card}>
           <Text style={styles.labName}>{labName}</Text>
           <Text style={styles.name}>{patientName}</Text>
-          <Text style={styles.lapid}>{lapid}</Text>
+          <Text style={styles.labid}>{labid}</Text>
           <View style={styles.row}>
             <Image src={qrDataUrl} style={styles.qr} />
-            <Text style={styles.hint}>Bring this card to any Labora AI lab for faster registration.</Text>
+            <Text style={styles.hint}>Bring this card to any Labid Health lab for faster registration.</Text>
           </View>
         </View>
       </Page>

@@ -38,8 +38,8 @@ export function LoginPage() {
   return (
     <div className="login-root">
       <div className="login-card">
-        <p className="login-tag">Lab Infrastructure for Africa</p>
-        <h1 className="login-title">Labora AI</h1>
+        <p className="login-tag">Your pocket lab</p>
+        <h1 className="login-title">Labid Health</h1>
         <p className="login-subtitle">Sign in to manage your lab, samples, and results.</p>
         <form className="login-form" onSubmit={handleSubmit(onSubmit)}>
           <label className="login-label">

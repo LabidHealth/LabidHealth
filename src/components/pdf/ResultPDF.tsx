@@ -75,7 +75,7 @@ const styles = StyleSheet.create({
     color: C.textPrimary,
     letterSpacing: 1
   },
-  patientLapid: {
+  patientLabid: {
     fontSize: 10,
     fontFamily: 'Courier',
     color: C.forest,
@@ -218,7 +218,7 @@ const REFERENCE_RANGES: Record<string, { low: number; high: number; unit: string
   bicarbonate: { low: 22, high: 29, unit: 'mmol/L' }
 }
 
-function referenceRangeText(key: string, param: ResultParameter): string {
+function referenceRangeText(key: string): string {
   const ref = REFERENCE_RANGES[key]
   if (!ref) return '—'
   return `${ref.low}–${ref.high} ${ref.unit}`
@@ -240,7 +240,7 @@ function isLow(param: ResultParameter) {
 export interface ResultPDFProps {
   result: Result
   patientName: string
-  patientLapid: string
+  patientLabid: string
   patientAge: string
   patientGender: string
   referringDoctor: string
@@ -259,7 +259,7 @@ export function ResultPDF(props: ResultPDFProps) {
   const {
     result,
     patientName,
-    patientLapid,
+    patientLabid,
     patientAge,
     patientGender,
     referringDoctor,
@@ -301,7 +301,7 @@ export function ResultPDF(props: ResultPDFProps) {
         {/* ── Patient section ────────────────────────────────────────────── */}
         <View style={styles.patientSection}>
           <Text style={styles.patientName}>{patientName.toUpperCase()}</Text>
-          <Text style={styles.patientLapid}>{patientLapid}</Text>
+          <Text style={styles.patientLabid}>{patientLabid}</Text>
           <View style={styles.patientMeta}>
             <View>
               <Text style={styles.patientMetaItem}>Age</Text>
@@ -348,7 +348,7 @@ export function ResultPDF(props: ResultPDFProps) {
               <Text style={styles.colParam}>{key.replace(/_/g, ' ')}</Text>
               <Text style={resultStyle}>{param.value}{indicator}</Text>
               <Text style={styles.colUnit}>{param.unit}</Text>
-              <Text style={styles.colRef}>{referenceRangeText(key, param)}</Text>
+              <Text style={styles.colRef}>{referenceRangeText(key)}</Text>
             </View>
           )
         })}

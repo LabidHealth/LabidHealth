@@ -35,9 +35,9 @@ serve(async (req) => {
     const secretKey = new TextEncoder().encode(JWT_SECRET)
     const { payload } = await jwtVerify(token, secretKey)
 
-    const { result_id, lapid } = payload as any
+    const { result_id, labid } = payload as any
 
-    if (!result_id || !lapid) {
+    if (!result_id || !labid) {
       return new Response(JSON.stringify({ error: 'Invalid token payload' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' }
@@ -49,7 +49,7 @@ serve(async (req) => {
       .from('results')
       .select('*')
       .eq('id', result_id)
-      .eq('lapid', lapid)
+      .eq('labid', labid)
       .single()
 
     if (error || !result) {
@@ -70,7 +70,7 @@ serve(async (req) => {
     const { data: patient } = await supabase
       .from('patients')
       .select('full_name')
-      .eq('lapid', lapid)
+      .eq('labid', labid)
       .single()
 
     return new Response(JSON.stringify({

@@ -107,7 +107,7 @@ export function ResultEntryPage() {
       setResult(record ?? null)
 
       if (record) {
-        const patientRecord = await db.patients.where('lapid').equals(record.lapid).first()
+        const patientRecord = await db.patients.where('labid').equals(record.labid).first()
         if (!mounted) return
 
         setPatient(patientRecord ?? null)
@@ -186,7 +186,7 @@ export function ResultEntryPage() {
       if (nextStatus === 'awaiting_approval') {
         await writeRecord('notifications', 'INSERT', {
           id: crypto.randomUUID(),
-          lapid: result.lapid,
+          labid: result.labid,
           result_id: result.id,
           lab_id: result.lab_id,
           channel: 'email',
@@ -259,7 +259,7 @@ export function ResultEntryPage() {
         <h3>Sample and patient</h3>
         <dl className="detail-list">
           <div><dt>Sample ID</dt><dd className="table-id">{result.sample_id}</dd></div>
-          <div><dt>LAPID</dt><dd className="table-id">{result.lapid}</dd></div>
+          <div><dt>LABID</dt><dd className="table-id">{result.labid}</dd></div>
           <div><dt>Patient</dt><dd>{patient?.full_name ?? 'Unknown'}</dd></div>
           <div><dt>Created</dt><dd>{formatDateTime(result.created_at)}</dd></div>
         </dl>

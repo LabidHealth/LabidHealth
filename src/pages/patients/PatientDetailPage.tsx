@@ -42,9 +42,9 @@ export function PatientDetailPage() {
       if (!mounted || !currentPatient) return
 
       const [patientVisits, patientResults, patientInvoices] = await Promise.all([
-        db.patient_visits.where('lapid').equals(currentPatient.lapid).reverse().sortBy('visited_at'),
-        db.results.where('lapid').equals(currentPatient.lapid).reverse().sortBy('created_at'),
-        db.invoices.where('lapid').equals(currentPatient.lapid).reverse().sortBy('created_at')
+        db.patient_visits.where('labid').equals(currentPatient.labid).reverse().sortBy('visited_at'),
+        db.results.where('labid').equals(currentPatient.labid).reverse().sortBy('created_at'),
+        db.invoices.where('labid').equals(currentPatient.labid).reverse().sortBy('created_at')
       ])
 
       setPatient(currentPatient)
@@ -95,14 +95,14 @@ export function PatientDetailPage() {
   const currentPatient = patient
   const canEditPatient = role === 'front_desk' || role === 'manager'
 
-  async function handlePrintLapidCard() {
-    const qrDataUrl = await QRCode.toDataURL(currentPatient.lapid, { margin: 1, width: 256 })
-    const [{ pdf }, { LapidCardPDF }] = await Promise.all([
+  async function handlePrintLabidCard() {
+    const qrDataUrl = await QRCode.toDataURL(currentPatient.labid, { margin: 1, width: 256 })
+    const [{ pdf }, { LabidCardPDF }] = await Promise.all([
       import('@react-pdf/renderer'),
-      import('@/components/pdf/LapidCardPDF')
+      import('@/components/pdf/LabidCardPDF')
     ])
     const blob = await pdf(
-      <LapidCardPDF patientName={currentPatient.full_name} lapid={currentPatient.lapid} qrDataUrl={qrDataUrl} />
+      <LabidCardPDF patientName={currentPatient.full_name} labid={currentPatient.labid} qrDataUrl={qrDataUrl} />
     ).toBlob()
     await openAndPrintPdfBlob(blob)
   }
@@ -114,7 +114,7 @@ export function PatientDetailPage() {
           <Avatar name={currentPatient.full_name} src={currentPatient.photo_url} />
           <div>
             <h2>{currentPatient.full_name}</h2>
-            <p className="table-id">{currentPatient.lapid}</p>
+            <p className="table-id">{currentPatient.labid}</p>
           </div>
         </div>
         <div className="patient-detail__actions">
@@ -124,10 +124,10 @@ export function PatientDetailPage() {
               Edit
             </Button>
           ) : null}
-          <Button variant="secondary" onClick={() => void handlePrintLapidCard()}>
-            Print LAPID card
+          <Button variant="secondary" onClick={() => void handlePrintLabidCard()}>
+            Print LABID card
           </Button>
-          <Button variant="primary" onClick={() => navigate(`/app/samples/register?lapid=${encodeURIComponent(currentPatient.lapid)}`)}>
+          <Button variant="primary" onClick={() => navigate(`/app/samples/register?labid=${encodeURIComponent(currentPatient.labid)}`)}>
             New Visit / Register Sample
           </Button>
         </div>

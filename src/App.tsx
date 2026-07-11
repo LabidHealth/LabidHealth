@@ -21,7 +21,6 @@ const ResultEntryPage      = lazy(() => import('@/pages/results/ResultEntryPage'
 const ResultApprovalPage   = lazy(() => import('@/pages/results/ResultApprovalPage').then((m) => ({ default: m.ResultApprovalPage })))
 const InvoiceListPage      = lazy(() => import('@/pages/billing/InvoiceListPage').then((m) => ({ default: m.InvoiceListPage })))
 const InvoiceDetailPage    = lazy(() => import('@/pages/billing/InvoiceDetailPage').then((m) => ({ default: m.InvoiceDetailPage })))
-const InventoryPage        = lazy(() => import('@/pages/inventory/InventoryPage').then((m) => ({ default: m.InventoryPage })))
 const ReportsPage          = lazy(() => import('@/pages/reports/ReportsPage').then((m) => ({ default: m.ReportsPage })))
 const SettingsPage         = lazy(() => import('@/pages/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })))
 const PriceListPage        = lazy(() => import('@/pages/settings/PriceListPage').then((m) => ({ default: m.PriceListPage })))
@@ -92,9 +91,6 @@ export function App() {
                       <Route path="billing" element={<InvoiceListPage />} />
                       <Route path="billing/:invoiceId" element={<InvoiceDetailPage />} />
 
-                      {/* Inventory */}
-                      <Route path="inventory" element={<InventoryPage />} />
-
                       {/* Reports */}
                       <Route path="reports" element={<ReportsPage />} />
 
@@ -103,6 +99,7 @@ export function App() {
                       <Route path="settings/prices" element={<PriceListPage />} />
 
                       <Route index element={<Navigate to="dashboard" replace />} />
+                      <Route path="*" element={<Navigate to="dashboard" replace />} />
                     </Routes>
                   </Suspense>
                 }

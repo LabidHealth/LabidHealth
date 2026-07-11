@@ -1,13 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react'
-import QRCode from 'qrcode'
+import React, { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Button, EmptyState, Input, useToast } from '@/components/ui'
-import { QRScanner } from '@/components/shared/QRScanner'
 import { useAuthContext } from '@/context/AuthContext'
 import { db } from '@/lib/db'
-import { formatDateTime } from '@/lib/formatters'
 import { offlineSuccessMessage } from '@/lib/offlineWrite'
-import { openAndPrintPdfBlob } from '@/lib/printPdf'
 import { friendlyError, supabaseQuery } from '@/lib/supabaseQuery'
 import { writeRecord } from '@/lib/writeRecord'
 import type { InvoiceLineItem, Patient, PriceListItem, Sample, SampleEvent } from '@/types'
@@ -98,38 +94,32 @@ async function loadPriceList(labId: string | null) {
 
 export function RegisterSamplePage() {
   const [searchParams] = useSearchParams()
-  const prefillLapid = searchParams.get('lapid') ?? ''
+  const prefillLabid = searchParams.get('labid') ?? ''
   const navigate = useNavigate()
   const toast = useToast()
   const { labId, user } = useAuthContext()
 
-  const [lapid, setLapid] = useState(prefillLapid)
+  const [labid, setLabid] = useState(prefillLabid)
   const [patient, setPatient] = useState<Patient | null>(null)
   const [tests, setTests] = useState<string[]>([])
   const [referringDoctor, setReferringDoctor] = useState('')
   const [collectedAt, setCollectedAt] = useState(() => new Date().toISOString())
   const [isStat, setIsStat] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [scannerOpen, setScannerOpen] = useState(false)
 
   useEffect(() => {
-    if (!lapid) {
+    if (!labid) {
       setPatient(null)
       return
     }
     let mounted = true
-    void db.patients.where('lapid').equals(lapid).first().then((match) => {
+    void db.patients.where('labid').equals(labid).first().then((match) => {
       if (mounted) setPatient(match ?? null)
     })
     return () => {
       mounted = false
     }
-  }, [lapid])
-
-  const selectedTestNames = useMemo(() => {
-    const map = new Map(TEST_CATEGORIES.flatMap((category) => category.tests.map((test) => [test.code, test.name] as const)))
-    return tests.map((code) => map.get(code) ?? code)
-  }, [tests])
+  }, [labid])
 
   function toggleTest(code: string) {
     setTests((prev) => (prev.includes(code) ? prev.filter((item) => item !== code) : [...prev, code]))
@@ -141,7 +131,7 @@ export function RegisterSamplePage() {
       return
     }
     if (!patient) {
-      toast.push('Enter a valid LAPID first.', 'error')
+      toast.push('Enter a valid LABID first.', 'error')
       return
     }
     if (tests.length === 0) {
@@ -156,7 +146,7 @@ export function RegisterSamplePage() {
       const sample: Sample = {
         id: crypto.randomUUID(),
         sample_id: sampleId,
-        lapid: patient.lapid,
+        labid: patient.labid,
         lab_id: labId,
         status: 'received',
         is_stat: isStat,
@@ -197,7 +187,7 @@ export function RegisterSamplePage() {
       await writeRecord('invoices', 'INSERT', {
         id: crypto.randomUUID(),
         invoice_id: `INV-${`${Math.floor(Math.random() * 9999) + 1}`.padStart(4, '0')}`,
-        lapid: patient.lapid,
+        labid: patient.labid,
         lab_id: labId,
         sample_id: sample.sample_id,
         line_items: lineItems,
@@ -212,25 +202,6 @@ export function RegisterSamplePage() {
         created_at: now,
         updated_at: now
       })
-
-      const [{ pdf }, { SampleLabelPDF }] = await Promise.all([
-        import('@react-pdf/renderer'),
-        import('@/pages/samples/components/SampleLabelPDF')
-      ])
-      const qrDataUrl = await QRCode.toDataURL(`#${sample.sample_id}`, { margin: 1, width: 256 })
-      const labelBlob = await pdf(
-        <SampleLabelPDF
-          labName="Labora AI"
-          sampleId={`#${sample.sample_id}`}
-          patientName={patient.full_name}
-          lapid={patient.lapid}
-          tests={selectedTestNames}
-          collectedAtLabel={formatDateTime(sample.collected_at)}
-          isStat={sample.is_stat}
-          qrDataUrl={qrDataUrl}
-        />
-      ).toBlob()
-      await openAndPrintPdfBlob(labelBlob)
 
       toast.push(offlineSuccessMessage(`Sample registered - #${sample.sample_id}`))
       navigate(`/app/samples/${sample.id}`)
@@ -248,24 +219,19 @@ export function RegisterSamplePage() {
       </header>
 
       <div className="detail-card">
-        <h3>LAPID lookup</h3>
+        <h3>LABID lookup</h3>
         <div className="form-grid">
-          <Input label="LAPID" value={lapid} placeholder="LA-2026-00001" onChange={(e) => setLapid(e.target.value)} />
-          <div className="form-actions">
-            <Button variant="secondary" type="button" onClick={() => setScannerOpen(true)}>
-              Scan QR
-            </Button>
-          </div>
+          <Input label="LABID" value={labid} placeholder="LB-2026-00001" onChange={(e) => setLabid(e.target.value)} />
         </div>
 
-        {!lapid ? (
-          <EmptyState icon="-" headline="Enter a LAPID" description="Scan a LAPID card or type it to load the patient." />
+        {!labid ? (
+          <EmptyState icon="-" headline="Enter a LABID" description="Type the patient's LABID to load their record." />
         ) : !patient ? (
           <EmptyState icon="?" headline="Patient not found" description="No matching patient record in local storage yet." />
         ) : (
           <div className="detail-list">
             <div><dt>Patient</dt><dd>{patient.full_name}</dd></div>
-            <div><dt>LAPID</dt><dd className="table-id">{patient.lapid}</dd></div>
+            <div><dt>LABID</dt><dd className="table-id">{patient.labid}</dd></div>
           </div>
         )}
       </div>
@@ -305,18 +271,6 @@ export function RegisterSamplePage() {
         </Button>
         <span className="form-autosave">Saved locally first. Syncs automatically when online.</span>
       </div>
-
-      {scannerOpen ? (
-        <QRScanner
-          scannerId="register-sample-qr"
-          title="Scan LAPID QR"
-          onClose={() => setScannerOpen(false)}
-          onScan={(value) => {
-            setLapid(value.trim())
-            setScannerOpen(false)
-          }}
-        />
-      ) : null}
     </section>
   )
 }

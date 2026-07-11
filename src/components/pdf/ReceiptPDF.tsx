@@ -24,7 +24,7 @@ const styles = StyleSheet.create({
   receiptId: { fontSize: 8, color: C.textSecondary, marginTop: 1, fontFamily: 'Courier' },
   patientSection: { backgroundColor: '#F5F5F0', padding: 8, borderRadius: 2, marginBottom: 10 },
   patientName: { fontSize: 11, fontFamily: 'Helvetica-Bold', color: C.textPrimary },
-  patientLapid: { fontSize: 8, fontFamily: 'Courier', color: C.forest, marginTop: 2 },
+  patientLabid: { fontSize: 8, fontFamily: 'Courier', color: C.forest, marginTop: 2 },
   sectionHeading: {
     fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.textSecondary,
     textTransform: 'uppercase', borderBottomWidth: 1, borderBottomColor: C.border,
@@ -95,7 +95,7 @@ export function ReceiptPDF({
         {/* Patient */}
         <View style={styles.patientSection}>
           <Text style={styles.patientName}>{patientName}</Text>
-          <Text style={styles.patientLapid}>{invoice.lapid}</Text>
+          <Text style={styles.patientLabid}>{invoice.labid}</Text>
         </View>
 
         {/* Line items */}

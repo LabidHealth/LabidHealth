@@ -30,7 +30,7 @@ export interface LabStaff {
 
 export interface Patient {
   id: string
-  lapid: string
+  labid: string
   full_name: string
   date_of_birth?: string | null
   gender?: 'male' | 'female' | 'other'
@@ -47,7 +47,7 @@ export interface Patient {
 
 export interface PatientVisit {
   id: string
-  lapid: string
+  labid: string
   lab_id: string
   visited_at: string
   created_by?: string | null
@@ -78,7 +78,7 @@ export type SampleStatus =
 export interface Sample {
   id: string
   sample_id: string
-  lapid: string
+  labid: string
   lab_id: string
   status: SampleStatus
   is_stat: boolean
@@ -129,7 +129,7 @@ export interface ResultParameter {
 export interface Result {
   id: string
   sample_id: string
-  lapid: string
+  labid: string
   lab_id: string
   test_type: string
   parameters: Record<string, ResultParameter>
@@ -168,7 +168,7 @@ export interface InvoiceLineItem {
 export interface Invoice {
   id: string
   invoice_id: string
-  lapid: string
+  labid: string
   lab_id: string
   sample_id?: string | null
   line_items: InvoiceLineItem[]
@@ -200,44 +200,12 @@ export interface Payment {
   created_at: string
 }
 
-export interface InventoryItem {
-  id: string
-  lab_id: string
-  item_name: string
-  category: 'reagent' | 'consumable' | 'control' | 'equipment'
-  current_stock: number
-  unit: string
-  minimum_level: number
-  expiry_date?: string | null
-  supplier?: string | null
-  supplier_phone?: string | null
-  cost_per_unit: number // stored in kobo - divide by 100 for display
-  is_active: boolean
-  created_at: string
-  updated_at: string
-}
-
-export type InventoryEventType = 'usage' | 'restock' | 'wastage' | 'adjustment' | 'stocktake' | 'expired'
-
-export interface InventoryEvent {
-  id: string
-  lab_id: string
-  item_id: string
-  event_type: InventoryEventType
-  quantity: number
-  reason?: string | null
-  unit_cost: number // stored in kobo - divide by 100 for display
-  batch_number?: string | null
-  performed_by?: string | null
-  created_at: string
-}
-
 export type NotificationChannel = 'whatsapp' | 'sms' | 'email'
 export type NotificationStatus = 'queued' | 'sent' | 'delivered' | 'opened' | 'failed'
 
 export interface Notification {
   id: string
-  lapid: string
+  labid: string
   result_id: string
   lab_id: string
   channel: NotificationChannel

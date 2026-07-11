@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react'
 import { Filter, Download } from 'lucide-react'
 import { Badge, Button, EmptyState, Input, useToast } from '@/components/ui'
 import { RoleGuard } from '@/components/shared/RoleGuard'
-import { useAuthContext } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { formatDateTime } from '@/lib/formatters'
 
@@ -14,14 +13,13 @@ interface AuditLogEntry {
   user_id: string | null
   user_role: string | null
   lab_id: string | null
-  old_record: any
-  new_record: any
+  old_record: unknown
+  new_record: unknown
   changed_fields: string[] | null
   created_at: string
 }
 
 export function AuditLogPage() {
-  const { user } = useAuthContext()
   const toast = useToast()
   const [logs, setLogs] = useState<AuditLogEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -46,7 +44,7 @@ export function AuditLogPage() {
 
       if (error) throw error
       setLogs(data || [])
-    } catch (err) {
+    } catch {
       toast.push('Failed to load audit logs', 'error')
     } finally {
       setLoading(false)
@@ -100,7 +98,7 @@ export function AuditLogPage() {
       URL.revokeObjectURL(url)
 
       toast.push('Audit log exported successfully')
-    } catch (err) {
+    } catch {
       toast.push('Failed to export audit log', 'error')
     }
   }

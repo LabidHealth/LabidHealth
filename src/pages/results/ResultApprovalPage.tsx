@@ -55,7 +55,7 @@ export function ResultApprovalPage() {
       setResult(record)
 
       const [patientRecord, sampleRecord] = await Promise.all([
-        db.patients.where('lapid').equals(record.lapid).first(),
+        db.patients.where('labid').equals(record.labid).first(),
         db.samples.where('sample_id').equals(record.sample_id).first()
       ])
 
@@ -100,13 +100,13 @@ export function ResultApprovalPage() {
         <ResultPDF
           result={approved}
           patientName={patient?.full_name ?? 'UNKNOWN'}
-          patientLapid={result.lapid}
+          patientLabid={result.labid}
           patientAge={calcAge(patient?.date_of_birth)}
           patientGender={patient?.gender ?? ''}
           referringDoctor={sample?.referring_doctor ?? ''}
           collectionDate={sample?.collected_at ? formatDate(sample.collected_at) : '-'}
           resultDate={formatDateTime(now)}
-          labName={lab?.name ?? 'Labora AI Laboratory'}
+          labName={lab?.name ?? 'Labid Health Laboratory'}
           labAddress={lab?.address ?? ''}
           labPhone={lab?.phone ?? ''}
           mlscnNo={lab?.mlscn_no ?? '-'}
@@ -150,7 +150,7 @@ export function ResultApprovalPage() {
 
       const notification: Notification = {
         id: crypto.randomUUID(),
-        lapid: result.lapid,
+        labid: result.labid,
         result_id: result.id,
         lab_id: labId,
         channel: 'whatsapp',
@@ -195,7 +195,7 @@ export function ResultApprovalPage() {
       if (labId) {
         const notification: Notification = {
           id: crypto.randomUUID(),
-          lapid: result.lapid,
+          labid: result.labid,
           result_id: result.id,
           lab_id: labId,
           channel: 'email',
@@ -256,7 +256,7 @@ export function ResultApprovalPage() {
       <header className="patient-detail__header">
         <div>
           <h2>Result Approval</h2>
-          <p className="list-subtitle">{result.test_type} - <span className="table-id">{result.lapid}</span></p>
+          <p className="list-subtitle">{result.test_type} - <span className="table-id">{result.labid}</span></p>
         </div>
         <Badge status="AWAITING APPROVAL">Awaiting Approval</Badge>
       </header>
@@ -273,7 +273,7 @@ export function ResultApprovalPage() {
           <h3>Patient</h3>
           <dl className="detail-list">
             <div><dt>Name</dt><dd>{patient?.full_name ?? '-'}</dd></div>
-            <div><dt>LAPID</dt><dd className="table-id">{result.lapid}</dd></div>
+            <div><dt>LABID</dt><dd className="table-id">{result.labid}</dd></div>
             <div><dt>Age</dt><dd>{calcAge(patient?.date_of_birth)}</dd></div>
             <div><dt>Gender</dt><dd>{patient?.gender ?? '-'}</dd></div>
           </dl>

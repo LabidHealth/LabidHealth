@@ -19,7 +19,6 @@ export function AppLayout() {
     if (location.pathname.startsWith('/app/samples')) return 'Sample Tracking'
     if (location.pathname.startsWith('/app/billing/')) return 'Invoice Detail'
     if (location.pathname.startsWith('/app/billing')) return 'Billing'
-    if (location.pathname.startsWith('/app/inventory')) return 'Inventory'
     if (location.pathname.startsWith('/app/reports')) return 'Reports'
     if (location.pathname.startsWith('/app/settings/prices')) return 'Price List'
     if (location.pathname.startsWith('/app/settings')) return 'Settings'

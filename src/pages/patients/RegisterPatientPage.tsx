@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { Button, Input, Modal, PhoneInput, useToast } from '@/components/ui'
 import { useAuthContext } from '@/context/AuthContext'
 import { findPotentialDuplicate, type DuplicateCandidate } from '@/lib/patientSearch'
-import { generateLocalLapid } from '@/lib/lapid'
+import { generateLocalLabid } from '@/lib/labid'
 import { offlineSuccessMessage } from '@/lib/offlineWrite'
 import { supabase } from '@/lib/supabase'
 import { friendlyError } from '@/lib/supabaseQuery'
@@ -38,16 +38,16 @@ export function RegisterPatientPage() {
   const values = watch()
 
   async function createPatientRecord(data: FormValues) {
-    let lapid: string
+    let labid: string
     if (navigator.onLine) {
-      const { data: lapidResponse, error: lapidError } = await supabase.rpc('generate_lapid')
-      if (lapidError) {
-        lapid = await generateLocalLapid()
+      const { data: labidResponse, error: labidError } = await supabase.rpc('generate_labid')
+      if (labidError) {
+        labid = await generateLocalLabid()
       } else {
-        lapid = (lapidResponse as string) ?? (await generateLocalLapid())
+        labid = (labidResponse as string) ?? (await generateLocalLabid())
       }
     } else {
-      lapid = await generateLocalLapid()
+      labid = await generateLocalLabid()
     }
 
     const now = new Date().toISOString()
@@ -55,7 +55,7 @@ export function RegisterPatientPage() {
 
     await writeRecord('patients', 'INSERT', {
       id: patientId,
-      lapid,
+      labid,
       full_name: data.full_name.trim(),
       date_of_birth: data.date_of_birth || null,
       gender: data.gender,
@@ -73,14 +73,14 @@ export function RegisterPatientPage() {
     if (labId) {
       await writeRecord('patient_visits', 'INSERT', {
         id: crypto.randomUUID(),
-        lapid,
+        labid,
         lab_id: labId,
         visited_at: now,
         created_by: user?.id ?? null
       })
     }
 
-    toast.push(offlineSuccessMessage(`Patient registered - LAPID: ${lapid}`))
+    toast.push(offlineSuccessMessage(`Patient registered - LABID: ${labid}`))
     navigate(`/app/patients/${patientId}`)
   }
 
@@ -93,13 +93,13 @@ export function RegisterPatientPage() {
     const now = new Date().toISOString()
     await writeRecord('patient_visits', 'INSERT', {
       id: crypto.randomUUID(),
-      lapid: candidate.patient.lapid,
+      labid: candidate.patient.labid,
       lab_id: labId,
       visited_at: now,
       created_by: user?.id ?? null
     })
 
-    toast.push(offlineSuccessMessage(`Existing patient visit recorded - ${candidate.patient.lapid}`))
+    toast.push(offlineSuccessMessage(`Existing patient visit recorded - ${candidate.patient.labid}`))
     navigate(`/app/patients/${candidate.patient.id}`)
   }
 
@@ -160,7 +160,7 @@ export function RegisterPatientPage() {
     return [
       { label: 'Full name', current: values.full_name, existing: duplicate.patient.full_name },
       { label: 'Phone', current: values.phone, existing: duplicate.patient.phone },
-      { label: 'LAPID', current: 'New patient', existing: duplicate.patient.lapid }
+      { label: 'LABID', current: 'New patient', existing: duplicate.patient.labid }
     ]
   }, [duplicate, values.full_name, values.phone])
 
@@ -203,7 +203,7 @@ export function RegisterPatientPage() {
 
         <label className="form-label form-checkbox">
           <input type="checkbox" {...register('consent', { required: true })} />
-          <span>I consent to my health data being stored and shared across Labora AI labs I visit. I can withdraw this consent at any time.</span>
+          <span>I consent to my health data being stored and shared across Labid Health labs I visit. I can withdraw this consent at any time.</span>
         </label>
 
         <div className="form-actions">

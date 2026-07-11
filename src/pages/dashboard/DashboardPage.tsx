@@ -11,7 +11,7 @@ import { db } from '@/lib/db'
 import { formatNaira, formatTimeAgo } from '@/lib/formatters'
 import { resendNotification } from '@/lib/notifications'
 import { supabase } from '@/lib/supabase'
-import type { InventoryItem, Invoice, LabStaff, Notification, Patient, PatientVisit, Result, Sample } from '@/types'
+import type { Invoice, LabStaff, Notification, Patient, PatientVisit, Result, Sample } from '@/types'
 
 interface WeeklyData {
   day: string
@@ -26,7 +26,7 @@ interface RevenueDayData {
 interface PendingApprovalRow {
   id: string
   patientName: string
-  lapid: string
+  labid: string
   testType: string
   createdAt: string
 }
@@ -34,7 +34,7 @@ interface PendingApprovalRow {
 interface UndeliveredRow {
   resultId: string
   patientName: string
-  lapid: string
+  labid: string
   testType: string
   approvedAt: string
   notification: Notification | undefined
@@ -58,7 +58,6 @@ interface DashboardMetrics {
   pendingApprovals: number
   undelivered: number
   averageTAT: string
-  lowStock: number
   weeklyData: WeeklyData[]
   revenueData: RevenueDayData[]
   topTests: Array<[string, number]>
@@ -67,7 +66,6 @@ interface DashboardMetrics {
   staffRows: StaffProductivityRow[]
   newPatients: number
   returningPatients: number
-  lowStockItems: InventoryItem[]
 }
 
 const placeholderWeeklyData: WeeklyData[] = Array.from({ length: 7 }, (_, i) => {
@@ -104,12 +102,11 @@ function eod(offset = 0) {
 
 async function syncDashboardTables() {
   if (!navigator.onLine) return
-  const [samples, results, invoices, notifications, inventory, patients, visits, staff] = await Promise.allSettled([
+  const [samples, results, invoices, notifications, patients, visits, staff] = await Promise.allSettled([
     supabase.from('samples').select('*'),
     supabase.from('results').select('*'),
     supabase.from('invoices').select('*'),
     supabase.from('notifications').select('*'),
-    supabase.from('inventory').select('*'),
     supabase.from('patients').select('*'),
     supabase.from('patient_visits').select('*'),
     supabase.from('lab_staff').select('*')
@@ -118,7 +115,6 @@ async function syncDashboardTables() {
   if (results.status === 'fulfilled' && results.value.data) await db.results.bulkPut(results.value.data)
   if (invoices.status === 'fulfilled' && invoices.value.data) await db.invoices.bulkPut(invoices.value.data)
   if (notifications.status === 'fulfilled' && notifications.value.data) await db.notifications.bulkPut(notifications.value.data)
-  if (inventory.status === 'fulfilled' && inventory.value.data) await db.inventory.bulkPut(inventory.value.data)
   if (patients.status === 'fulfilled' && patients.value.data) await db.patients.bulkPut(patients.value.data)
   if (visits.status === 'fulfilled' && visits.value.data) await db.patient_visits.bulkPut(visits.value.data)
   if (staff.status === 'fulfilled' && staff.value.data) await db.lab_staff.bulkPut(staff.value.data)
@@ -126,7 +122,7 @@ async function syncDashboardTables() {
 
 function buildMetrics(
   samples: Sample[], results: Result[], invoices: Invoice[],
-  notifications: Notification[], inventory: InventoryItem[],
+  notifications: Notification[],
   patients: Patient[], visits: PatientVisit[], staff: LabStaff[]
 ): DashboardMetrics {
   const todayStart = sod(); const todayEnd = eod()
@@ -147,12 +143,12 @@ function buildMetrics(
     if (age < 24 * 3_600_000) return false
     return !notifications.some((n) => n.result_id === r.id && n.opened_at)
   }).map((r) => {
-    const p = patients.find((pt) => pt.lapid === r.lapid)
+    const p = patients.find((pt) => pt.labid === r.labid)
     const notif = notifications.filter((n) => n.result_id === r.id).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
     return {
       resultId: r.id,
-      patientName: p?.full_name ?? r.lapid,
-      lapid: r.lapid,
+      patientName: p?.full_name ?? r.labid,
+      labid: r.labid,
       testType: r.test_type,
       approvedAt: r.approved_at ?? '',
       notification: notif
@@ -170,9 +166,6 @@ function buildMetrics(
   const averageTAT = tatVals.length
     ? `${Math.max(1, Math.round(tatVals.reduce((a, v) => a + v, 0) / tatVals.length / 3_600_000))} hrs`
     : '-'
-
-  const lowStockItems = inventory.filter((i) => i.current_stock < i.minimum_level).slice(0, 8)
-  const lowStock = lowStockItems.length
 
   const weeklyData = placeholderWeeklyData.map((e, idx) => ({
     day: e.day,
@@ -195,25 +188,25 @@ function buildMetrics(
     for (const t of s.tests_ordered) testCounts.set(t, (testCounts.get(t) ?? 0) + 1)
   }
   const topTests = Array.from(testCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5)
-  const patientMap = new Map(patients.map((p) => [p.lapid, p.full_name]))
+  const patientMap = new Map(patients.map((p) => [p.labid, p.full_name]))
 
   const pendingRows = pendingResults.map((r) => ({
     id: r.id,
-    patientName: patientMap.get(r.lapid) ?? 'Unknown',
-    lapid: r.lapid,
+    patientName: patientMap.get(r.labid) ?? 'Unknown',
+    labid: r.labid,
     testType: r.test_type,
     createdAt: r.created_at
   }))
 
   // New vs Returning: patients who had >1 visit before today are returning
-  const visitCountByLapid = new Map<string, number>()
+  const visitCountByLabid = new Map<string, number>()
   for (const v of visits) {
-    visitCountByLapid.set(v.lapid, (visitCountByLapid.get(v.lapid) ?? 0) + 1)
+    visitCountByLabid.set(v.labid, (visitCountByLabid.get(v.labid) ?? 0) + 1)
   }
-  const todaySampleLapids = new Set(samples.filter((s) => isBetween(s.collected_at, todayStart, todayEnd)).map((s) => s.lapid))
+  const todaySampleLabids = new Set(samples.filter((s) => isBetween(s.collected_at, todayStart, todayEnd)).map((s) => s.labid))
   let newPatients = 0; let returningPatients = 0
-  for (const lapid of todaySampleLapids) {
-    const count = visitCountByLapid.get(lapid) ?? 0
+  for (const labid of todaySampleLabids) {
+    const count = visitCountByLabid.get(labid) ?? 0
     if (count <= 1) newPatients++; else returningPatients++
   }
 
@@ -231,31 +224,31 @@ function buildMetrics(
     revenueToday, revenueTrend: getTrend(revenueToday, revenueYd), revenueSub: getTrendLabel(revenueToday, revenueYd, formatNaira),
     pendingApprovals: pendingResults.length,
     undelivered: undeliveredRows.length,
-    averageTAT, lowStock,
+    averageTAT,
     weeklyData: weeklyData.some((e) => e.count > 0) ? weeklyData : placeholderWeeklyData,
     revenueData,
     topTests, pendingRows, undeliveredRows, staffRows,
-    newPatients, returningPatients, lowStockItems
+    newPatients, returningPatients
   }
 }
 
 export function DashboardPage() {
   const { role } = useAuthContext()
   const navigate = useNavigate()
-  const [metrics, setMetrics] = useState<DashboardMetrics>(() => buildMetrics([], [], [], [], [], [], [], []))
+  const [metrics, setMetrics] = useState<DashboardMetrics>(() => buildMetrics([], [], [], [], [], [], []))
   const [resendingId, setResendingId] = useState<string | null>(null)
 
   useEffect(() => {
     let mounted = true
     const load = async () => {
       const refresh = async () => {
-        const [samples, results, invoices, notifications, inventory, patients, visits, staff] = await Promise.all([
+        const [samples, results, invoices, notifications, patients, visits, staff] = await Promise.all([
           db.samples.toArray(), db.results.toArray(), db.invoices.toArray(),
-          db.notifications.toArray(), db.inventory.toArray(), db.patients.toArray(),
+          db.notifications.toArray(), db.patients.toArray(),
           db.patient_visits.toArray(), db.lab_staff.toArray()
         ])
         if (!mounted) return
-        setMetrics(buildMetrics(samples, results, invoices, notifications, inventory, patients, visits, staff))
+        setMetrics(buildMetrics(samples, results, invoices, notifications, patients, visits, staff))
       }
       await refresh()
       if (navigator.onLine) { await syncDashboardTables(); await refresh() }
@@ -298,7 +291,6 @@ export function DashboardPage() {
 
       <div className="dashboard-row dashboard-row--secondary">
         <StatCard label="Average TAT" value={metrics.averageTAT} />
-        <StatCard label="Low Stock Items" value={`${metrics.lowStock}`} status={metrics.lowStock > 0 ? 'warning' : undefined} />
       </div>
 
       {/* Charts row */}
@@ -318,7 +310,7 @@ export function DashboardPage() {
 
         {/* New vs Returning donut */}
         <section className="chart-card" style={{ flex: 1, minWidth: 200 }}>
-          <h3>Today's Patients</h3>
+          <h3>Today&apos;s Patients</h3>
           {totalPatients === 0 ? (
             <EmptyState icon="-" headline="No patients today" description="" />
           ) : (
@@ -383,7 +375,7 @@ export function DashboardPage() {
                 <div>
                   <p>{row.patientName}</p>
                   <small className="pending-row__meta">
-                    <span className="table-id">{row.lapid}</span>
+                    <span className="table-id">{row.labid}</span>
                     <span>{row.testType}</span>
                     <span style={{ color: 'var(--color-status-danger)' }}>
                       Approved {formatTimeAgo(row.approvedAt)} — not opened
@@ -410,7 +402,7 @@ export function DashboardPage() {
         </section>
       ) : null}
 
-      {/* Top tests + Low stock row */}
+      {/* Top tests */}
       <div className="dashboard-row" style={{ gap: 16, alignItems: 'stretch' }}>
         <section className="top-tests" style={{ flex: 1 }}>
           <h3>Top 5 Tests This Month</h3>
@@ -427,40 +419,6 @@ export function DashboardPage() {
             </div>
           )}
         </section>
-
-        {/* Low stock quick view */}
-        {metrics.lowStockItems.length > 0 ? (
-          <section className="top-tests" style={{ flex: 1 }}>
-            <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <h3 style={{ margin: 0 }}>Low Stock</h3>
-              <Button variant="secondary" size="sm" onClick={() => navigate('/app/inventory')}>View all</Button>
-            </header>
-            <div className="top-tests__list">
-              {metrics.lowStockItems.map((item) => {
-                const pct = item.minimum_level > 0
-                  ? Math.min(100, Math.round((item.current_stock / item.minimum_level) * 100))
-                  : 0
-                return (
-                  <div key={item.id} className="top-test-row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-                      <span style={{ fontSize: 13 }}>{item.item_name}</span>
-                      <span style={{ fontSize: 12, color: 'var(--color-status-danger)', fontWeight: 600 }}>
-                        {item.current_stock}/{item.minimum_level} {item.unit}
-                      </span>
-                    </div>
-                    <div style={{ width: '100%', height: 4, background: 'var(--color-border)', borderRadius: 2 }}>
-                      <div style={{
-                        height: '100%', borderRadius: 2,
-                        background: pct < 50 ? 'var(--color-status-danger)' : 'var(--color-status-warning)',
-                        width: `${pct}%`
-                      }} />
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </section>
-        ) : null}
       </div>
 
       {/* Staff productivity (manager/owner) */}
@@ -505,7 +463,7 @@ export function DashboardPage() {
                 <div>
                   <p>{r.patientName}</p>
                   <small className="pending-row__meta">
-                    <span className="table-id">{r.lapid}</span>
+                    <span className="table-id">{r.labid}</span>
                     <span>{r.testType}</span>
                     <span>{formatTimeAgo(r.createdAt)}</span>
                   </small>

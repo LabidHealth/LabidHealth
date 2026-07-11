@@ -118,6 +118,6 @@ export async function findPotentialDuplicate(fullName: string, phone: string) {
   return bestMatch
 }
 
-export function buildPatientSearchValue(patient: Pick<Patient, 'full_name' | 'phone' | 'lapid'>) {
-  return [normalizeName(patient.full_name), normalizePhone(patient.phone), patient.lapid.toLowerCase()].join(' ')
+export function buildPatientSearchValue(patient: Pick<Patient, 'full_name' | 'phone' | 'labid'>) {
+  return [normalizeName(patient.full_name), normalizePhone(patient.phone), patient.labid.toLowerCase()].join(' ')
 }

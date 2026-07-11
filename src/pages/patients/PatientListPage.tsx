@@ -32,13 +32,13 @@ async function syncPatientsFromSupabase() {
 }
 
 function buildRows(patients: Patient[], visits: PatientVisit[]) {
-  const visitsByLapid = visits.reduce<Record<string, PatientVisit[]>>((accumulator, visit) => {
-    accumulator[visit.lapid] = [...(accumulator[visit.lapid] ?? []), visit]
+  const visitsByLabid = visits.reduce<Record<string, PatientVisit[]>>((accumulator, visit) => {
+    accumulator[visit.labid] = [...(accumulator[visit.labid] ?? []), visit]
     return accumulator
   }, {})
 
   return patients.map((patient) => {
-    const patientVisits = visitsByLapid[patient.lapid] ?? []
+    const patientVisits = visitsByLabid[patient.labid] ?? []
     const lastVisit = patientVisits
       .sort((left, right) => new Date(right.visited_at).getTime() - new Date(left.visited_at).getTime())[0]
       ?.visited_at ?? patient.updated_at
@@ -113,14 +113,14 @@ export function PatientListPage() {
   const currentPage = filtered.slice(page * perPage, page * perPage + perPage)
   const pageCount = Math.max(1, Math.ceil(filtered.length / perPage))
 
-  async function handlePrintLapidCard(patient: Patient) {
-    const qrDataUrl = await QRCode.toDataURL(patient.lapid, { margin: 1, width: 256 })
-    const [{ pdf }, { LapidCardPDF }] = await Promise.all([
+  async function handlePrintLabidCard(patient: Patient) {
+    const qrDataUrl = await QRCode.toDataURL(patient.labid, { margin: 1, width: 256 })
+    const [{ pdf }, { LabidCardPDF }] = await Promise.all([
       import('@react-pdf/renderer'),
-      import('@/components/pdf/LapidCardPDF')
+      import('@/components/pdf/LabidCardPDF')
     ])
     const blob = await pdf(
-      <LapidCardPDF patientName={patient.full_name} lapid={patient.lapid} qrDataUrl={qrDataUrl} />
+      <LabidCardPDF patientName={patient.full_name} labid={patient.labid} qrDataUrl={qrDataUrl} />
     ).toBlob()
     await openAndPrintPdfBlob(blob)
   }
@@ -139,7 +139,7 @@ export function PatientListPage() {
             <Input
               className="search-input"
               value={search}
-              placeholder="Search by name, phone, LAPID"
+              placeholder="Search by name, phone, LABID"
               onChange={(event) => setSearch(event.target.value)}
             />
           </div>
@@ -193,7 +193,7 @@ export function PatientListPage() {
                     <Avatar name={row.patient.full_name} src={row.patient.photo_url} />
                     <div>
                       <strong>{row.patient.full_name}</strong>
-                      <div className="table-id">{row.patient.lapid}</div>
+                      <div className="table-id">{row.patient.labid}</div>
                     </div>
                   </div>
                 </TableCell>
@@ -215,7 +215,7 @@ export function PatientListPage() {
                       <div className="action-menu__panel">
                         <button type="button" onClick={() => navigate(`/app/patients/${row.patient.id}`)}>View</button>
                         <button type="button" onClick={() => navigate(`/app/patients/${row.patient.id}?mode=edit`)}>Edit</button>
-                        <button type="button" onClick={() => void handlePrintLapidCard(row.patient)}>Print LAPID card</button>
+                        <button type="button" onClick={() => void handlePrintLabidCard(row.patient)}>Print LABID card</button>
                       </div>
                     ) : null}
                   </div>

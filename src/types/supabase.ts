@@ -41,11 +41,6 @@ export interface Database {
         Insert: Record<string, unknown>
         Update: Record<string, unknown>
       }
-      inventory: {
-        Row: Record<string, unknown>
-        Insert: Record<string, unknown>
-        Update: Record<string, unknown>
-      }
       notifications: {
         Row: Record<string, unknown>
         Insert: Record<string, unknown>
@@ -54,7 +49,7 @@ export interface Database {
     }
     Views: Record<string, never>
     Functions: {
-      generate_lapid: {
+      generate_labid: {
         Args: Record<string, never>
         Returns: string
       }

@@ -9,7 +9,7 @@ import type { Notification } from '@/types'
  */
 export async function queueNotification(
   resultId: string,
-  lapid: string,
+  labid: string,
   labId: string,
   pdfUrl: string | null,
   patientPhone: string | null
@@ -17,7 +17,7 @@ export async function queueNotification(
   const now = new Date().toISOString()
   const notification: Notification = {
     id: crypto.randomUUID(),
-    lapid,
+    labid,
     result_id: resultId,
     lab_id: labId,
     channel: 'whatsapp',
