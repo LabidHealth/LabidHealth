@@ -1,4 +1,4 @@
-import { supabase } from './supabase'
+import { supabase, hasBackend } from './supabase'
 import { db } from './db'
 import type { SyncQueueItem } from '@/types'
 
@@ -65,6 +65,11 @@ class SyncEngine {
 
   async push() {
     if (this.isSyncing) return
+    // Offline dev mode: no backend to push to; everything lives locally.
+    if (!hasBackend) {
+      this.updateState('synced')
+      return
+    }
     if (!navigator.onLine) {
       this.updateState('offline')
       return

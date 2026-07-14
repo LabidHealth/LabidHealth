@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
-import { supabase } from '@/lib/supabase'
+import { supabase, hasBackend } from '@/lib/supabase'
+import { DEV_LAB_ID, DEV_USERS, devRoleFromEmail } from '@/lib/devMode'
 import { db } from '@/lib/db'
 import { writeRecord } from '@/lib/writeRecord'
 import type { LabStaff, UserRole } from '@/types'
@@ -8,6 +9,7 @@ import type { LabStaff, UserRole } from '@/types'
 const ROLE_STORAGE_KEY = 'labid-health-user-role'
 const LAB_STORAGE_KEY = 'labid-health-lab-id'
 const MFA_STORAGE_KEY = 'labid-health-mfa-verified'
+const DEV_SESSION_KEY = 'labid-health-dev-session'
 
 export type MfaState = 'checking' | 'not_required' | 'setup_required' | 'verify_required' | 'verified'
 
@@ -116,6 +118,22 @@ export function useAuth() {
   }, [persistTwoFactorFlag, role, session?.user?.id])
 
   const signIn = useCallback(async (email: string, password: string) => {
+    if (!hasBackend) {
+      const devRole = devRoleFromEmail(email)
+      const devUser = DEV_USERS[devRole]
+      localStorage.setItem(DEV_SESSION_KEY, JSON.stringify({ userId: devUser.userId, role: devRole, labId: DEV_LAB_ID }))
+      localStorage.setItem(ROLE_STORAGE_KEY, devRole)
+      localStorage.setItem(LAB_STORAGE_KEY, DEV_LAB_ID)
+      const devSession = { user: { id: devUser.userId } } as unknown as Session
+      setSession(devSession)
+      setUser(devSession.user)
+      setRole(devRole)
+      setLabId(DEV_LAB_ID)
+      setMfaState('not_required')
+      setLoading(false)
+      return { nextPath: '/app/dashboard' }
+    }
+
     try {
       setLoading(true)
       setMfaState('checking')
@@ -141,6 +159,18 @@ export function useAuth() {
   }, [loadRole, refreshMfaState])
 
   const signOut = useCallback(async () => {
+    if (!hasBackend) {
+      localStorage.removeItem(DEV_SESSION_KEY)
+      localStorage.removeItem(ROLE_STORAGE_KEY)
+      localStorage.removeItem(LAB_STORAGE_KEY)
+      setSession(null)
+      setUser(null)
+      setRole(null)
+      setLabId(null)
+      setMfaState('not_required')
+      return
+    }
+
     setLoading(true)
     await supabase.auth.signOut()
     setSession(null)
@@ -156,6 +186,26 @@ export function useAuth() {
 
   useEffect(() => {
     let isMounted = true
+
+    if (!hasBackend) {
+      const raw = localStorage.getItem(DEV_SESSION_KEY)
+      if (raw) {
+        try {
+          const dev = JSON.parse(raw) as { userId: string; role: UserRole; labId: string }
+          setSession({ user: { id: dev.userId } } as unknown as Session)
+          setUser({ id: dev.userId } as unknown as User)
+          setRole(dev.role)
+          setLabId(dev.labId)
+        } catch {
+          /* ignore malformed dev session */
+        }
+      }
+      setMfaState('not_required')
+      setLoading(false)
+      return () => {
+        isMounted = false
+      }
+    }
 
     const bootstrap = async () => {
       try {

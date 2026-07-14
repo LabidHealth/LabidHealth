@@ -12,6 +12,9 @@ import { formatNaira, formatTimeAgo } from '@/lib/formatters'
 import { resendNotification } from '@/lib/notifications'
 import { supabase } from '@/lib/supabase'
 import type { Invoice, LabStaff, Notification, Patient, PatientVisit, Result, Sample } from '@/types'
+import { OwnerDashboard } from './OwnerDashboard'
+import { ScientistDashboard } from './ScientistDashboard'
+import { FrontDeskDashboard } from './FrontDeskDashboard'
 
 interface WeeklyData {
   day: string
@@ -276,6 +279,10 @@ export function DashboardPage() {
       setResendingId(null)
     }
   }
+
+  if (role === 'owner') return <OwnerDashboard />
+  if (role === 'scientist') return <ScientistDashboard />
+  if (role === 'front_desk') return <FrontDeskDashboard />
 
   return (
     <div className="dashboard-grid">

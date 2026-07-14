@@ -1,5 +1,6 @@
 import { db } from './db'
 import { syncEngine } from './sync'
+import { hasBackend } from './supabase'
 import { logAuditEvent } from './auditLog'
 import type { SyncQueueItem } from '@/types'
 
@@ -19,15 +20,6 @@ export async function writeRecord<T extends { id: string }>(
     await dexieTable.delete(payload.id)
   }
 
-  await db.syncQueue.add({
-    table,
-    operation,
-    recordId: payload.id,
-    payload,
-    timestamp: Date.now(),
-    attempts: 0
-  } as SyncQueueItem)
-
   await logAuditEvent(
     operation,
     table,
@@ -36,8 +28,20 @@ export async function writeRecord<T extends { id: string }>(
     payload as Record<string, unknown>
   )
 
-  if (navigator.onLine) {
-    void syncEngine.push()
+  // Offline dev mode (no backend): keep everything local, skip the sync queue.
+  if (hasBackend) {
+    await db.syncQueue.add({
+      table,
+      operation,
+      recordId: payload.id,
+      payload,
+      timestamp: Date.now(),
+      attempts: 0
+    } as SyncQueueItem)
+
+    if (navigator.onLine) {
+      void syncEngine.push()
+    }
   }
 
   return payload
