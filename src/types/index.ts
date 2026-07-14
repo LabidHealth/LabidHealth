@@ -278,4 +278,6 @@ export interface SyncQueueItem {
   timestamp: number
   attempts: number
   lastError?: string | null
+  /** Set once max attempts are exhausted — the op is never dropped, only parked for manual retry. */
+  stuck?: boolean
 }

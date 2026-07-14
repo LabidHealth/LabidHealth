@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis } from 'recharts'
 import { Banknote, Clock, Download, ReceiptText } from 'lucide-react'
 import { db } from '@/lib/db'
+import { syncEngine } from '@/lib/sync'
 import { formatNaira } from '@/lib/formatters'
 import type { Invoice, Patient, Payment, PaymentMethod, Result, Sample } from '@/types'
 
@@ -44,18 +45,20 @@ interface OwnerMetrics {
   byMethod: Array<{ method: PaymentMethod; amount: number }>
   weekly: Array<{ day: string; amount: number }>
   pending: number
+  stuck: number
   syncedRecords: number
   activity: Array<{ id: string; patient: string; service: string; amount: number; method: PaymentMethod; time: string }>
 }
 
 async function computeOwnerMetrics(): Promise<OwnerMetrics> {
-  const [invoices, payments, samples, results, patients, pending] = await Promise.all([
+  const [invoices, payments, samples, results, patients, pending, stuck] = await Promise.all([
     db.invoices.toArray() as Promise<Invoice[]>,
     db.payments.toArray() as Promise<Payment[]>,
     db.samples.toArray() as Promise<Sample[]>,
     db.results.toArray() as Promise<Result[]>,
     db.patients.toArray() as Promise<Patient[]>,
-    db.syncQueue.count()
+    syncEngine.pendingCount(),
+    syncEngine.stuckCount()
   ])
   const live = payments.filter((p) => !p.voided)
   const nameByLabid = new Map(patients.map((p) => [p.labid, p.full_name]))
@@ -118,7 +121,7 @@ async function computeOwnerMetrics(): Promise<OwnerMetrics> {
 
   return {
     collectedToday, collectedTrendPct, invoicedToday, outstandingTotal, outstandingCount: outstandingInvoices.length,
-    agingTotal, averageTatHrs, byMethod, weekly, pending, syncedRecords: invoices.length + payments.length + results.length,
+    agingTotal, averageTatHrs, byMethod, weekly, pending, stuck, syncedRecords: invoices.length + payments.length + results.length,
     activity
   }
 }
@@ -231,10 +234,10 @@ export function OwnerDashboard() {
         <div className="owner__side">
           <section className="owner-sync">
             <span className="owner-sync__label">Sync health</span>
-            <span className="owner-sync__status">System synced</span>
+            <span className="owner-sync__status">{m.stuck > 0 ? 'Needs attention' : 'System synced'}</span>
             <span className="owner-sync__meta">Synced records</span>
             <span className="owner-sync__count">{m.syncedRecords.toLocaleString()}</span>
-            <span className="owner-sync__pending">{m.pending} pending</span>
+            <span className="owner-sync__pending">{m.pending} pending{m.stuck > 0 ? ` · ${m.stuck} stuck` : ''}</span>
           </section>
 
           <section className="owner-panel">

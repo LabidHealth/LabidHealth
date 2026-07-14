@@ -3,8 +3,11 @@ import { db } from './db'
 import type { SyncQueueItem } from '@/types'
 
 type SyncState = 'synced' | 'syncing' | 'pending' | 'offline' | 'conflict'
-
 type Listener = (state: SyncState) => void
+
+// After this many failed attempts an op is parked as "stuck" and surfaced for
+// manual retry — it is never dropped, so a payment/result can't be lost.
+const MAX_ATTEMPTS = 8
 
 function isConflictError(error: unknown) {
   if (!error || typeof error !== 'object') return false
@@ -24,9 +27,7 @@ function isConflictError(error: unknown) {
 function withTimeout<T>(thenable: PromiseLike<T>, ms = 8_000): Promise<T> {
   return Promise.race([
     Promise.resolve(thenable),
-    new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error(`Supabase call timed out after ${ms}ms`)), ms)
-    )
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`Supabase call timed out after ${ms}ms`)), ms))
   ])
 }
 
@@ -50,9 +51,7 @@ class SyncEngine {
 
   private updateState(next: SyncState) {
     this.state = next
-    for (const listener of this.listeners) {
-      listener(next)
-    }
+    for (const listener of this.listeners) listener(next)
   }
 
   subscribe(listener: Listener) {
@@ -61,6 +60,25 @@ class SyncEngine {
     return () => {
       this.listeners.delete(listener)
     }
+  }
+
+  /** Ops still waiting to sync (excludes parked/stuck ops). */
+  pendingCount(): Promise<number> {
+    return db.syncQueue.filter((i) => !i.stuck).count()
+  }
+
+  /** Ops parked after repeated failures — need manual attention. */
+  stuckCount(): Promise<number> {
+    return db.syncQueue.filter((i) => i.stuck === true).count()
+  }
+
+  /** Un-park stuck ops and try again (Sync Health "retry" action). */
+  async retryStuck() {
+    const stuck = await db.syncQueue.filter((i) => i.stuck === true).toArray()
+    for (const item of stuck) {
+      await db.syncQueue.update(item.id!, { stuck: false, attempts: 0, lastError: null })
+    }
+    await this.push()
   }
 
   async push() {
@@ -75,9 +93,11 @@ class SyncEngine {
       return
     }
 
-    const queue = await db.syncQueue.orderBy('timestamp').toArray()
+    const all = await db.syncQueue.orderBy('timestamp').toArray()
+    const queue = all.filter((i) => !i.stuck)
+    const hasStuck = all.length > queue.length
     if (queue.length === 0) {
-      this.updateState('synced')
+      this.updateState(hasStuck ? 'conflict' : 'synced')
       return
     }
 
@@ -96,28 +116,25 @@ class SyncEngine {
           sawFailure = true
           if (isConflictError(error)) sawConflict = true
           const attempts = (item.attempts ?? 0) + 1
-          if (attempts >= 5) {
-            // Give up after 5 attempts — drop the item to avoid infinite loops
-            await db.syncQueue.delete(item.id!)
+          const lastError = (error as Error).message
+          if (attempts >= MAX_ATTEMPTS) {
+            // NEVER drop — park as stuck so it can be retried, never lost.
+            await db.syncQueue.update(item.id!, { attempts, stuck: true, lastError })
           } else {
-            await db.syncQueue.update(item.id!, { attempts, lastError: (error as Error).message })
-            // Schedule a retry with exponential back-off
+            await db.syncQueue.update(item.id!, { attempts, lastError })
             if (this.retryTimer) clearTimeout(this.retryTimer)
             this.retryTimer = setTimeout(() => void this.push(), backoffMs(attempts))
           }
         }
       }
 
-      const remaining = await db.syncQueue.count()
-      if (remaining === 0 && !sawFailure) {
-        this.updateState('synced')
-      } else if (!navigator.onLine) {
-        this.updateState('offline')
-      } else if (sawConflict) {
-        this.updateState('conflict')
-      } else {
-        this.updateState('pending')
-      }
+      const stuck = await this.stuckCount()
+      const remaining = await this.pendingCount()
+      if (stuck > 0) this.updateState('conflict')
+      else if (remaining === 0 && !sawFailure) this.updateState('synced')
+      else if (!navigator.onLine) this.updateState('offline')
+      else if (sawConflict) this.updateState('conflict')
+      else this.updateState('pending')
     } finally {
       this.isSyncing = false
     }
@@ -125,23 +142,16 @@ class SyncEngine {
 
   private async processItem(item: SyncQueueItem) {
     const { table, operation, payload } = item
-    if (operation === 'INSERT') {
-      const result = await withTimeout(supabase.from(table as never).insert(payload as never))
-      const { error } = result as { error: unknown }
+    if (operation === 'INSERT' || operation === 'UPDATE') {
+      // Idempotent upsert on the client-generated UUID id: a retry after a
+      // partial success can never create a duplicate row. Append-only tables
+      // (payments, results, sample_events, audit_log) simply re-apply the row.
+      const res = await withTimeout(supabase.from(table as never).upsert(payload as never, { onConflict: 'id' }))
+      const { error } = res as { error: unknown }
       if (error) throw error
-    }
-    if (operation === 'UPDATE') {
-      const result = await withTimeout(
-        supabase.from(table as never).update(payload as never).eq('id', item.recordId)
-      )
-      const { error } = result as { error: unknown }
-      if (error) throw error
-    }
-    if (operation === 'DELETE') {
-      const result = await withTimeout(
-        supabase.from(table as never).delete().eq('id', item.recordId)
-      )
-      const { error } = result as { error: unknown }
+    } else if (operation === 'DELETE') {
+      const res = await withTimeout(supabase.from(table as never).delete().eq('id', item.recordId))
+      const { error } = res as { error: unknown }
       if (error) throw error
     }
   }
