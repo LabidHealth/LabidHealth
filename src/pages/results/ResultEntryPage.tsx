@@ -9,6 +9,7 @@ import { offlineSuccessMessage } from '@/lib/offlineWrite'
 import { friendlyError } from '@/lib/supabaseQuery'
 import { writeRecord } from '@/lib/writeRecord'
 import { evaluateNumeric, evaluateQualitative, getCatalogTest, refText } from '@/lib/catalog'
+import { features } from '@/lib/features'
 import type {
   CatalogParameter,
   CatalogResultType,
@@ -105,12 +106,18 @@ export function ResultEntryPage() {
     setSaving(true)
     try {
       const now = new Date().toISOString()
+      // Direct finalise (approvalStep off): the entering scientist signs the
+      // result out. When approval is on it goes to 'awaiting_approval' with no
+      // approver stamped, so a different user must approve it.
+      const finalise = nextStatus === 'approved'
       const updated: Result = {
         ...result,
         parameters,
         comments: comments || null,
         status: nextStatus,
         entered_by: result.entered_by ?? user?.id ?? null,
+        approved_by: finalise ? user?.id ?? null : result.approved_by ?? null,
+        approved_at: finalise ? now : result.approved_at ?? null,
         critical_acknowledged: hasCritical ? criticalAck : false,
         critical_acknowledged_by: hasCritical && criticalAck ? user?.id ?? null : null,
         critical_acknowledged_at: hasCritical && criticalAck ? now : null,
@@ -119,9 +126,9 @@ export function ResultEntryPage() {
       await writeRecord('results', 'UPDATE', updated, result)
       setResult(updated)
       toast.push(
-        nextStatus === 'draft'
-          ? offlineSuccessMessage('Draft saved')
-          : offlineSuccessMessage('Submitted for approval')
+        offlineSuccessMessage(
+          nextStatus === 'draft' ? 'Draft saved' : finalise ? 'Result finalised — ready to deliver' : 'Submitted for approval'
+        )
       )
       navigate(`/app/results/${updated.id}`)
     } catch (error) {
@@ -232,7 +239,11 @@ export function ResultEntryPage() {
 
       <div className="entry-actions">
         <Button variant="secondary" loading={saving} type="button" onClick={() => void persist('draft')}>Save draft</Button>
-        <Button variant="primary" loading={saving} disabled={!canSubmit} type="button" onClick={() => void persist('awaiting_approval')}>Submit for approval</Button>
+        {features.approvalStep ? (
+          <Button variant="primary" loading={saving} disabled={!canSubmit} type="button" onClick={() => void persist('awaiting_approval')}>Submit for approval</Button>
+        ) : (
+          <Button variant="primary" loading={saving} disabled={!canSubmit} type="button" onClick={() => void persist('approved')}>Save &amp; finalise</Button>
+        )}
         <span className="entry-updated">Saved locally · {formatDateTime(result.updated_at)}</span>
       </div>
     </div>

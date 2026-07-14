@@ -13,6 +13,7 @@ const QUEUE_STATUSES = new Set(['received', 'processing', 'awaiting_approval'])
 
 type Row = {
   sampleRowId: string
+  resultId: string | null
   sampleId: string
   labid: string
   patient: string
@@ -61,6 +62,7 @@ async function computeSciData(): Promise<SciData> {
       const test = r?.test_type ?? testByCode.get(s.tests_ordered[0]) ?? s.tests_ordered[0]
       return {
         sampleRowId: s.id,
+        resultId: r?.id ?? null,
         sampleId: s.sample_id,
         labid: s.labid,
         patient: nameByLabid.get(s.labid) ?? s.labid,
@@ -187,7 +189,7 @@ export function ScientistDashboard() {
                     <td className="right">
                       <button
                         className={`btn btn--sm ${r.action === 'review' ? 'btn--secondary' : 'btn--primary'}`}
-                        onClick={() => navigate(`/app/samples/${r.sampleRowId}`)}
+                        onClick={() => navigate(r.resultId ? `/app/results/${r.resultId}/entry` : `/app/samples/${r.sampleRowId}`)}
                       >
                         {r.action === 'review' ? 'Review final' : 'Enter results'}
                       </button>
