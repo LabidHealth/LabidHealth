@@ -4,8 +4,8 @@ import { db } from '@/lib/db'
 import type { Patient, PriceListItem, Result, ResultParameter, Sample } from '@/types'
 
 const ABBR: Record<string, string> = {
-  haemoglobin: 'Hb', packed_cell_volume: 'PCV', wbc_total: 'WBC', platelets: 'PLT', neutrophils: 'NEU',
-  total_cholesterol: 'CHOL', hdl_cholesterol: 'HDL', ldl_cholesterol: 'LDL', triglycerides: 'TRIG'
+  hb: 'Hb', pcv: 'PCV', wbc: 'WBC', plt: 'PLT', neut: 'NEU',
+  chol: 'CHOL', hdl: 'HDL', ldl: 'LDL', trig: 'TRIG'
 }
 const abbr = (k: string) => ABBR[k] ?? k.replace(/_/g, ' ').slice(0, 4).toUpperCase()
 

@@ -1,87 +1,31 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Badge, Button, EmptyState, Input, useToast } from '@/components/ui'
+import { Button, EmptyState, useToast } from '@/components/ui'
 import { useAuthContext } from '@/context/AuthContext'
 import { db } from '@/lib/db'
 import { formatDateTime } from '@/lib/formatters'
 import { offlineSuccessMessage } from '@/lib/offlineWrite'
 import { friendlyError } from '@/lib/supabaseQuery'
 import { writeRecord } from '@/lib/writeRecord'
-import { getReferenceRange, getParameterStatus } from '@/lib/referenceRanges'
-import type { Patient, Result, ResultParameter, ResultParameterStatus } from '@/types'
+import { evaluateNumeric, evaluateQualitative, getCatalogTest, refText } from '@/lib/catalog'
+import type {
+  CatalogParameter,
+  CatalogResultType,
+  CatalogTest,
+  Patient,
+  Result,
+  ResultParameter,
+  ResultParameterStatus
+} from '@/types'
 
-function toNumber(raw: string) {
-  const value = Number(raw)
-  return Number.isFinite(value) ? value : null
-}
-
-const TEST_DEFS: Record<
-  string,
-  {
-    title: string
-    fields: Array<{ key: string; label: string; parameterName: string }>
-    selectFields?: Array<{ key: string; label: string; options: string[] }>
-  }
-> = {
-  FBC: {
-    title: 'Full Blood Count (FBC)',
-    fields: [
-      { key: 'haemoglobin', label: 'Haemoglobin', parameterName: 'haemoglobin' },
-      { key: 'rbc_count', label: 'RBC Count', parameterName: 'rbc_count' },
-      { key: 'wbc', label: 'WBC', parameterName: 'wbc_count' },
-      { key: 'platelets', label: 'Platelets', parameterName: 'platelet_count' },
-      { key: 'pcv', label: 'PCV/Haematocrit', parameterName: 'haematocrit' },
-      { key: 'mcv', label: 'MCV', parameterName: 'mcv' },
-      { key: 'mch', label: 'MCH', parameterName: 'mch' },
-      { key: 'mchc', label: 'MCHC', parameterName: 'mchc' }
-    ]
-  },
-  FBG: {
-    title: 'Fasting Blood Glucose',
-    fields: [{ key: 'glucose', label: 'Glucose', parameterName: 'fasting_glucose' }]
-  },
-  LFT: {
-    title: 'Liver Function Test (LFT)',
-    fields: [
-      { key: 'total_bilirubin', label: 'Total Bilirubin', parameterName: 'total_bilirubin' },
-      { key: 'direct_bilirubin', label: 'Direct Bilirubin', parameterName: 'direct_bilirubin' },
-      { key: 'alt', label: 'ALT', parameterName: 'alt' },
-      { key: 'ast', label: 'AST', parameterName: 'ast' },
-      { key: 'alp', label: 'ALP', parameterName: 'alp' },
-      { key: 'ggt', label: 'GGT', parameterName: 'ggt' },
-      { key: 'total_protein', label: 'Total Protein', parameterName: 'total_protein' },
-      { key: 'albumin', label: 'Albumin', parameterName: 'albumin' }
-    ]
-  },
-  RFT: {
-    title: 'Renal Function Test (RFT)',
-    fields: [
-      { key: 'urea', label: 'Urea', parameterName: 'urea' },
-      { key: 'creatinine', label: 'Creatinine', parameterName: 'creatinine' },
-      { key: 'egfr', label: 'eGFR', parameterName: 'egfr' },
-      { key: 'sodium', label: 'Sodium', parameterName: 'sodium' },
-      { key: 'potassium', label: 'Potassium', parameterName: 'potassium' },
-      { key: 'chloride', label: 'Chloride', parameterName: 'chloride' },
-      { key: 'bicarbonate', label: 'Bicarbonate', parameterName: 'bicarbonate' }
-    ]
-  },
-  MALRDT: {
-    title: 'Malaria RDT',
-    fields: [],
-    selectFields: [
-      { key: 'result', label: 'Result', options: ['Negative', 'Positive'] },
-      { key: 'species', label: 'Species (if positive)', options: ['P. falciparum', 'P. vivax', 'Mixed', 'Not determined'] }
-    ]
-  }
-}
-
-function statusLabel(status: ResultParameterStatus) {
-  if (status === 'critical_low' || status === 'critical_high') return 'CRITICAL'
-  if (status === 'high') return 'HIGH'
-  if (status === 'low') return 'LOW'
-  return 'NORMAL'
-}
+const isNumericShape = (t: CatalogResultType) => t === 'numeric' || t === 'panel'
+const flagClass = (s: ResultParameterStatus) =>
+  s === 'high' || s === 'critical_high' ? 'hi' : s === 'low' || s === 'critical_low' ? 'lo' : ''
+const flagText = (s: ResultParameterStatus) =>
+  s === 'critical_high' || s === 'critical_low' ? 'CRITICAL' : s === 'high' ? 'HIGH' : s === 'low' ? 'LOW' : ''
+const arrow = (s: ResultParameterStatus) =>
+  s === 'high' || s === 'critical_high' ? ' ↑' : s === 'low' || s === 'critical_low' ? ' ↓' : ''
 
 export function ResultEntryPage() {
   const { resultId } = useParams()
@@ -91,8 +35,11 @@ export function ResultEntryPage() {
 
   const [result, setResult] = useState<Result | null>(null)
   const [patient, setPatient] = useState<Patient | null>(null)
+  const [test, setTest] = useState<CatalogTest | null>(null)
+  const [params, setParams] = useState<CatalogParameter[]>([])
+  const [loaded, setLoaded] = useState(false)
   const [values, setValues] = useState<Record<string, string>>({})
-  const [selectValues, setSelectValues] = useState<Record<string, string>>({})
+  const [narrative, setNarrative] = useState('')
   const [comments, setComments] = useState('')
   const [criticalAck, setCriticalAck] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -100,116 +47,81 @@ export function ResultEntryPage() {
   useEffect(() => {
     if (!resultId) return
     let mounted = true
-
-    const load = async () => {
+    void (async () => {
       const record = await db.results.get(resultId)
       if (!mounted) return
       setResult(record ?? null)
-
       if (record) {
-        const patientRecord = await db.patients.where('labid').equals(record.labid).first()
+        const p = await db.patients.where('labid').equals(record.labid).first()
+        const cat = await getCatalogTest(record.test_type)
         if (!mounted) return
-
-        setPatient(patientRecord ?? null)
+        setPatient(p ?? null)
+        setTest(cat?.test ?? null)
+        setParams(cat?.params ?? [])
         setComments(record.comments ?? '')
         setCriticalAck(Boolean(record.critical_acknowledged))
-
-        const numericValues: Record<string, string> = {}
-        const currentSelect: Record<string, string> = {}
-        for (const [key, param] of Object.entries(record.parameters ?? {})) {
-          numericValues[key] = param.value
-          currentSelect[key] = param.value
+        const v: Record<string, string> = {}
+        for (const [k, par] of Object.entries(record.parameters ?? {})) v[k] = par.value
+        setValues(v)
+        if ((cat?.test.result_type ?? 'narrative') === 'narrative') {
+          setNarrative(record.parameters?.findings?.value ?? '')
         }
-        setValues(numericValues)
-        setSelectValues(currentSelect)
       }
-    }
-
-    void load()
+      setLoaded(true)
+    })()
     return () => {
       mounted = false
     }
   }, [resultId])
 
-  const testDef = useMemo(() => (result ? TEST_DEFS[result.test_type] : null), [result])
+  const shape: CatalogResultType = test?.result_type ?? 'narrative'
 
-  const computedParameters = useMemo(() => {
-    if (!result || !testDef) return { parameters: {} as Record<string, ResultParameter>, hasCritical: false }
-    const parameters: Record<string, ResultParameter> = {}
-    let hasCritical = false
-
-    for (const field of testDef.fields) {
-      const raw = values[field.key] ?? ''
-      const numeric = toNumber(raw)
-
-      const patientAge = patient?.date_of_birth
-        ? Math.floor((Date.now() - new Date(patient.date_of_birth).getTime()) / (365.25 * 24 * 60 * 60 * 1000))
-        : 30
-      const patientGender = (patient?.gender === 'male' || patient?.gender === 'female') ? patient.gender : 'male'
-
-      const range = getReferenceRange(result.test_type, field.parameterName, patientAge, patientGender, false)
-      const unit = range?.unit ?? ''
-      const status = numeric === null || !range ? 'normal' : getParameterStatus(numeric, range)
-      if (status === 'critical_low' || status === 'critical_high') hasCritical = true
-      parameters[field.key] = { value: raw, unit, status }
+  const { parameters, hasCritical } = useMemo(() => {
+    const out: Record<string, ResultParameter> = {}
+    let crit = false
+    if (shape === 'narrative') {
+      out.findings = { value: narrative, unit: '', status: 'normal' }
+    } else {
+      for (const p of params) {
+        const raw = values[p.key] ?? ''
+        let status: ResultParameterStatus = 'normal'
+        if (raw !== '') {
+          if (isNumericShape(shape)) {
+            const n = Number(raw)
+            status = Number.isFinite(n) ? evaluateNumeric(p, n) : 'normal'
+          } else if (shape === 'qualitative') {
+            status = evaluateQualitative(raw)
+          }
+        }
+        if (status === 'critical_low' || status === 'critical_high') crit = true
+        out[p.key] = { value: raw, unit: p.unit ?? '', status }
+      }
     }
-
-    for (const selectField of testDef.selectFields ?? []) {
-      const raw = selectValues[selectField.key] ?? ''
-      parameters[selectField.key] = { value: raw, unit: '', status: 'normal' }
-    }
-
-    return { parameters, hasCritical }
-  }, [patient, result, selectValues, testDef, values])
+    return { parameters: out, hasCritical: crit }
+  }, [params, shape, values, narrative])
 
   async function persist(nextStatus: Result['status']) {
-    if (!result || !testDef) return
-
+    if (!result) return
     setSaving(true)
     try {
       const now = new Date().toISOString()
       const updated: Result = {
         ...result,
-        parameters: computedParameters.parameters,
+        parameters,
         comments: comments || null,
         status: nextStatus,
-        entered_by: result.entered_by ?? (user?.id ?? null),
-        critical_acknowledged: computedParameters.hasCritical ? criticalAck : false,
-        critical_acknowledged_by: computedParameters.hasCritical && criticalAck ? (user?.id ?? null) : null,
-        critical_acknowledged_at: computedParameters.hasCritical && criticalAck ? now : null,
+        entered_by: result.entered_by ?? user?.id ?? null,
+        critical_acknowledged: hasCritical ? criticalAck : false,
+        critical_acknowledged_by: hasCritical && criticalAck ? user?.id ?? null : null,
+        critical_acknowledged_at: hasCritical && criticalAck ? now : null,
         updated_at: now
       }
-
       await writeRecord('results', 'UPDATE', updated, result)
       setResult(updated)
-
-      if (nextStatus === 'awaiting_approval') {
-        await writeRecord('notifications', 'INSERT', {
-          id: crypto.randomUUID(),
-          labid: result.labid,
-          result_id: result.id,
-          lab_id: result.lab_id,
-          channel: 'email',
-          status: 'queued',
-          recipient_phone: null,
-          secure_link: null,
-          link_token: null,
-          link_expires_at: null,
-          sent_at: null,
-          delivered_at: null,
-          opened_at: null,
-          failure_reason: null,
-          is_doctor_copy: false,
-          doctor_name: null,
-          superseded_by: null,
-          created_at: now
-        })
-      }
-
       toast.push(
         nextStatus === 'draft'
           ? offlineSuccessMessage('Draft saved')
-          : offlineSuccessMessage('Submitted for approval - manager notified')
+          : offlineSuccessMessage('Submitted for approval')
       )
       navigate(`/app/results/${updated.id}`)
     } catch (error) {
@@ -219,7 +131,7 @@ export function ResultEntryPage() {
     }
   }
 
-  if (!result) {
+  if (loaded && !result) {
     return (
       <EmptyState
         icon="?"
@@ -229,150 +141,100 @@ export function ResultEntryPage() {
       />
     )
   }
+  if (!result) return <div className="app-loading">Loading…</div>
 
-  if (!testDef) {
-    return (
-      <EmptyState
-        icon="?"
-        headline="Unsupported test type"
-        description="This test type is not configured for structured entry yet."
-        cta={<Button variant="secondary" onClick={() => navigate(`/app/results/${result.id}`)}>Back</Button>}
-      />
-    )
-  }
-
-  const canSubmit = !computedParameters.hasCritical || criticalAck
+  const canSubmit = !hasCritical || criticalAck
+  const setVal = (k: string, val: string) => setValues((prev) => ({ ...prev, [k]: val }))
 
   return (
-    <section className="form-page">
-      <header className="patient-detail__header">
+    <div className="entry">
+      <header className="entry__head">
         <div>
-          <h2>Result Entry</h2>
-          <p className="list-subtitle">{testDef.title}</p>
+          <h1 className="entry__title">{test?.name ?? result.test_type}</h1>
+          <p className="entry__subtitle">
+            {patient?.full_name ?? 'Unknown'} · <span className="table-id">{result.labid}</span>
+            {test ? ` · ${test.category} · ${test.specimen}` : ''}
+          </p>
         </div>
-        <Badge status={result.status === 'draft' ? 'INFO' : result.status === 'awaiting_approval' ? 'AWAITING APPROVAL' : 'SUCCESS'}>
+        <span className={`chip ${result.status === 'draft' ? 'c-slate' : result.status === 'awaiting_approval' ? 'c-amber' : 'c-green'}`}>
           {result.status.replace('_', ' ')}
-        </Badge>
+        </span>
       </header>
 
-      <div className="detail-card">
-        <h3>Sample and patient</h3>
-        <dl className="detail-list">
-          <div><dt>Sample ID</dt><dd className="table-id">{result.sample_id}</dd></div>
-          <div><dt>LABID</dt><dd className="table-id">{result.labid}</dd></div>
-          <div><dt>Patient</dt><dd>{patient?.full_name ?? 'Unknown'}</dd></div>
-          <div><dt>Created</dt><dd>{formatDateTime(result.created_at)}</dd></div>
-        </dl>
-      </div>
-
-      <div className="detail-card">
-        <h3>Parameters</h3>
-        <div className="detail-timeline">
-          {testDef.fields.map((field) => {
-            const patientAge = patient?.date_of_birth
-              ? Math.floor((Date.now() - new Date(patient.date_of_birth).getTime()) / (365.25 * 24 * 60 * 60 * 1000))
-              : 30
-            const patientGender = (patient?.gender === 'male' || patient?.gender === 'female') ? patient.gender : 'male'
-            const range = getReferenceRange(result.test_type, field.parameterName, patientAge, patientGender, false)
-            const status = computedParameters.parameters[field.key]?.status ?? 'normal'
-            const isHigh = status === 'high' || status === 'critical_high'
-            const isLow = status === 'low' || status === 'critical_low'
-            const display = computedParameters.parameters[field.key]
-
-            return (
-              <div key={field.key} className="result-parameter-row">
-                <div>
-                  <strong>{field.label}</strong>
-                  <div className="list-subtitle">Ref: {range ? `${range.low}-${range.high} ${range.unit}` : 'N/A'}</div>
-                </div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <Input
-                    value={values[field.key] ?? ''}
-                    onChange={(e) => setValues((prev) => ({ ...prev, [field.key]: e.target.value }))}
-                    placeholder={range?.unit ?? ''}
-                  />
-                  {isHigh || isLow ? (
-                    <span
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        padding: '2px 8px',
-                        borderRadius: 'var(--radius-full)',
-                        fontWeight: 600,
-                        fontSize: 12,
-                        background: isHigh
-                          ? status === 'critical_high'
-                            ? 'rgba(255,77,77,0.25)'
-                            : 'rgba(255,77,77,0.15)'
-                          : status === 'critical_low'
-                          ? 'rgba(255,184,0,0.25)'
-                          : 'rgba(255,184,0,0.15)',
-                        color: isHigh ? 'var(--color-status-danger)' : 'var(--color-status-warning)'
-                      }}
-                    >
-                      {isHigh ? '↑' : '↓'} {statusLabel(status)}
-                    </span>
-                  ) : (
-                    <span style={{ color: 'var(--color-text-secondary)', fontSize: 12 }}>{display?.unit ?? range?.unit ?? ''}</span>
-                  )}
-                  {isHigh || isLow ? (
-                    <span style={{ color: 'var(--color-text-secondary)', fontSize: 12 }}>{display?.unit ?? range?.unit ?? ''}</span>
-                  ) : null}
-                </div>
-              </div>
-            )
-          })}
-
-          {(testDef.selectFields ?? []).map((field) => (
-            <div key={field.key} className="result-parameter-row">
-              <div>
-                <strong>{field.label}</strong>
-              </div>
-              <select
-                className="form-input"
-                value={selectValues[field.key] ?? ''}
-                onChange={(e) => setSelectValues((prev) => ({ ...prev, [field.key]: e.target.value }))}
-              >
-                <option value="">Select...</option>
-                {field.options.map((option) => (
-                  <option key={option} value={option}>{option}</option>
-                ))}
-              </select>
-            </div>
-          ))}
+      <section className="owner-panel">
+        <div className="owner-panel__head">
+          <h3>{shape === 'narrative' ? 'Findings' : 'Parameters'}</h3>
+          <span className="owner-panel__meta">{shape} · sample #{result.sample_id}</span>
         </div>
-      </div>
 
-      {computedParameters.hasCritical ? (
-        <div className="detail-card">
-          <div className="offline-banner" style={{ borderRadius: 8, border: '1px solid rgba(255,184,0,0.3)' }}>
-            <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
-              <AlertTriangle size={18} />
-              Critical value detected - acknowledgment required before submission
-            </span>
-            <label className="form-label form-checkbox" style={{ margin: 0 }}>
-              <input type="checkbox" checked={criticalAck} onChange={(e) => setCriticalAck(e.target.checked)} />
-              <span>I acknowledge this critical value</span>
-            </label>
+        {shape === 'narrative' ? (
+          <div className="entry-narrative">
+            <textarea
+              className="entry-textarea"
+              value={narrative}
+              onChange={(e) => setNarrative(e.target.value)}
+              placeholder="Type the report / findings…"
+            />
+            <p className="entry-attach-note">Image / PDF attachment will be available once the backend is connected.</p>
           </div>
+        ) : (
+          <div className="entry-rows">
+            {params.map((p) => {
+              const status = parameters[p.key]?.status ?? 'normal'
+              const fc = flagClass(status)
+              return (
+                <div className="entry-row" key={p.key}>
+                  <div className="entry-row__label">
+                    <strong>{p.name}</strong>
+                    {shape !== 'descriptive' ? <span className="entry-row__ref">Ref: {refText(p)}</span> : null}
+                  </div>
+                  <div className="entry-row__field">
+                    {shape === 'qualitative' && p.qualitative_options ? (
+                      <select className="form-input entry-select" value={values[p.key] ?? ''} onChange={(e) => setVal(p.key, e.target.value)}>
+                        <option value="">Select…</option>
+                        {p.qualitative_options.map((o) => (
+                          <option key={o} value={o}>{o}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        className="form-input entry-input"
+                        inputMode={isNumericShape(shape) ? 'decimal' : 'text'}
+                        value={values[p.key] ?? ''}
+                        onChange={(e) => setVal(p.key, e.target.value)}
+                        placeholder={p.unit ?? ''}
+                      />
+                    )}
+                    {p.unit && isNumericShape(shape) ? <span className="entry-unit">{p.unit}</span> : null}
+                    {fc ? <span className={`entry-flag entry-flag--${fc}`}>{flagText(status)}{arrow(status)}</span> : null}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </section>
+
+      {hasCritical ? (
+        <div className="entry-crit">
+          <span className="entry-crit__msg"><AlertTriangle size={18} /> Critical value detected — acknowledge before submitting.</span>
+          <label className="entry-crit__ack">
+            <input type="checkbox" checked={criticalAck} onChange={(e) => setCriticalAck(e.target.checked)} />
+            I acknowledge this critical value
+          </label>
         </div>
       ) : null}
 
-      <div className="detail-card">
-        <h3>Comments / interpretation</h3>
-        <Input value={comments} onChange={(e) => setComments(e.target.value)} placeholder="Optional comments" />
-      </div>
+      <section className="owner-panel">
+        <div className="owner-panel__head"><h3>Comments / interpretation</h3></div>
+        <textarea className="entry-textarea entry-textarea--short" value={comments} onChange={(e) => setComments(e.target.value)} placeholder="Optional interpretation for the report…" />
+      </section>
 
-      <div className="form-actions">
-        <Button variant="secondary" loading={saving} type="button" onClick={() => void persist('draft')}>
-          Save Draft
-        </Button>
-        <Button variant="primary" loading={saving} disabled={!canSubmit} type="button" onClick={() => void persist('awaiting_approval')}>
-          Submit for Approval
-        </Button>
-        <span className="form-autosave">* All changes autosaved locally</span>
+      <div className="entry-actions">
+        <Button variant="secondary" loading={saving} type="button" onClick={() => void persist('draft')}>Save draft</Button>
+        <Button variant="primary" loading={saving} disabled={!canSubmit} type="button" onClick={() => void persist('awaiting_approval')}>Submit for approval</Button>
+        <span className="entry-updated">Saved locally · {formatDateTime(result.updated_at)}</span>
       </div>
-    </section>
+    </div>
   )
 }

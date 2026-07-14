@@ -37,18 +37,18 @@ const T: Record<string, TestRef> = {
 }
 
 const fbcParams: Record<string, ResultParameter> = {
-  haemoglobin: { value: '10.4', unit: 'g/dl', status: 'low' },
-  packed_cell_volume: { value: '38', unit: '%', status: 'normal' },
-  wbc_total: { value: '14.2', unit: 'x10^9/L', status: 'high' },
-  platelets: { value: '266', unit: 'x10^9/L', status: 'normal' },
-  neutrophils: { value: '71', unit: '%', status: 'normal' }
+  hb: { value: '10.4', unit: 'g/dl', status: 'low' },
+  pcv: { value: '38', unit: '%', status: 'normal' },
+  wbc: { value: '14.2', unit: 'x10^9/L', status: 'high' },
+  plt: { value: '266', unit: 'x10^9/L', status: 'normal' },
+  neut: { value: '71', unit: '%', status: 'normal' }
 }
 
 const lipidParams: Record<string, ResultParameter> = {
-  total_cholesterol: { value: '6.8', unit: 'mmol/L', status: 'high' },
-  hdl_cholesterol: { value: '0.9', unit: 'mmol/L', status: 'low' },
-  ldl_cholesterol: { value: '4.6', unit: 'mmol/L', status: 'high' },
-  triglycerides: { value: '2.1', unit: 'mmol/L', status: 'high' }
+  chol: { value: '6.8', unit: 'mmol/L', status: 'high' },
+  hdl: { value: '0.9', unit: 'mmol/L', status: 'low' },
+  ldl: { value: '4.6', unit: 'mmol/L', status: 'high' },
+  trig: { value: '2.1', unit: 'mmol/L', status: 'high' }
 }
 
 type Entry = {
@@ -93,8 +93,8 @@ const ENTRIES: Entry[] = [
   },
   {
     labid: 'LB-2026-00409', name: 'Musa Umar', phone: '2348137788201', sex: 'male', dob: '2001-06-14',
-    tests: [T.URIN], sampleStatus: 'received', collectedMsAgo: hrs(1)
-    // unpaid
+    tests: [T.URIN], sampleStatus: 'received', collectedMsAgo: hrs(1),
+    result: { status: 'draft' }
   },
   {
     labid: 'LB-2026-00408', name: 'Blessing Eze', phone: '2348021120774', sex: 'female', dob: '1990-01-28',

@@ -1,6 +1,8 @@
 import Dexie, { type Table } from 'dexie'
 import type {
   AuditLogEntry,
+  CatalogParameter,
+  CatalogTest,
   Invoice,
   Lab,
   LabStaff,
@@ -22,6 +24,8 @@ export interface DbSchema {
   patients: Table<Patient, string>
   patient_visits: Table<PatientVisit, string>
   price_list: Table<PriceListItem, string>
+  catalog_tests: Table<CatalogTest, string>
+  catalog_parameters: Table<CatalogParameter, string>
   samples: Table<Sample, string>
   sample_events: Table<SampleEvent, string>
   results: Table<Result, string>
@@ -39,6 +43,8 @@ class LabidDatabase extends Dexie implements DbSchema {
   patients!: Table<Patient, string>
   patient_visits!: Table<PatientVisit, string>
   price_list!: Table<PriceListItem, string>
+  catalog_tests!: Table<CatalogTest, string>
+  catalog_parameters!: Table<CatalogParameter, string>
   samples!: Table<Sample, string>
   sample_events!: Table<SampleEvent, string>
   results!: Table<Result, string>
@@ -66,6 +72,10 @@ class LabidDatabase extends Dexie implements DbSchema {
       notifications: 'id, labid, result_id, lab_id, status, created_at',
       syncQueue: '++id, table, operation, recordId, timestamp, attempts',
       audit_log: 'id, lab_id, user_id, action, created_at'
+    })
+    this.version(2).stores({
+      catalog_tests: 'id, lab_id, code, name, result_type, active',
+      catalog_parameters: 'id, test_id, sort'
     })
   }
 }

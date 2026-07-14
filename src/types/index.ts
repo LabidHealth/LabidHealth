@@ -157,6 +157,37 @@ export interface ResultAmendment {
   amended_at: string
 }
 
+// ── Test catalog (data-driven; five result shapes) ───────────────────────────
+export type CatalogResultType = 'numeric' | 'panel' | 'qualitative' | 'descriptive' | 'narrative'
+export type RefOperator = 'between' | 'lt' | 'gt'
+
+export interface CatalogTest {
+  id: string
+  lab_id: string
+  code: string
+  name: string
+  category: string
+  specimen: string
+  result_type: CatalogResultType
+  active: boolean
+}
+
+export interface CatalogParameter {
+  id: string
+  test_id: string
+  key: string
+  name: string
+  unit?: string | null
+  ref_low?: number | null
+  ref_high?: number | null
+  ref_operator?: RefOperator | null
+  qualitative_options?: string[] | null
+  sex?: 'male' | 'female' | null
+  critical_low?: number | null
+  critical_high?: number | null
+  sort: number
+}
+
 export type InvoiceStatus = 'unpaid' | 'partial' | 'paid' | 'refunded' | 'void'
 
 export interface InvoiceLineItem {

@@ -1,4 +1,5 @@
 import { db } from './db'
+import { seedCatalog } from './catalog'
 import { hasBackend } from './supabase'
 import type { Lab, LabStaff, PriceListItem, UserRole } from '@/types'
 
@@ -105,6 +106,7 @@ export async function seedDevDataIfNeeded(): Promise<void> {
     updated_at: now
   }))
   await db.price_list.bulkPut(priceList)
+  await seedCatalog(DEV_LAB_ID)
 
   // Demo transactional data (patients, samples, invoices, payments, results,
   // notifications) — seeded once so the dashboards are populated. Dynamic
