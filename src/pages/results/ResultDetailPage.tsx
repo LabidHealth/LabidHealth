@@ -10,14 +10,8 @@ import { getDeliveryStatus, resendNotification } from '@/lib/notifications'
 import { offlineSuccessMessage } from '@/lib/offlineWrite'
 import { friendlyError } from '@/lib/supabaseQuery'
 import { supabase } from '@/lib/supabase'
-import type { Notification, Patient, Result, Sample } from '@/types'
-
-function isAbnormal(status: string) {
-  return status === 'high' || status === 'critical_high'
-}
-function isLow(status: string) {
-  return status === 'low' || status === 'critical_low'
-}
+import { getCatalogTest, refText } from '@/lib/catalog'
+import type { CatalogParameter, CatalogTest, Notification, Patient, Result, ResultParameterStatus, Sample } from '@/types'
 
 function DeliveryStatusSection({
   resultId,
@@ -152,10 +146,14 @@ export function ResultDetailPage() {
   const { resultId } = useParams()
   const navigate = useNavigate()
   const { role } = useAuthContext()
+  const toast = useToast()
 
   const [result, setResult] = useState<Result | null>(null)
   const [patient, setPatient] = useState<Patient | null>(null)
   const [sample, setSample] = useState<Sample | null>(null)
+  const [catTest, setCatTest] = useState<CatalogTest | null>(null)
+  const [catParams, setCatParams] = useState<CatalogParameter[]>([])
+  const [generating, setGenerating] = useState(false)
 
   useEffect(() => {
     if (!resultId) return
@@ -164,13 +162,16 @@ export function ResultDetailPage() {
       const record = await db.results.get(resultId)
       if (!mounted || !record) return
       setResult(record)
-      const [patientRecord, sampleRecord] = await Promise.all([
+      const [patientRecord, sampleRecord, cat] = await Promise.all([
         db.patients.where('labid').equals(record.labid).first(),
-        db.samples.where('sample_id').equals(record.sample_id).first()
+        db.samples.where('sample_id').equals(record.sample_id).first(),
+        getCatalogTest(record.test_type)
       ])
       if (!mounted) return
       setPatient(patientRecord ?? null)
       setSample(sampleRecord ?? null)
+      setCatTest(cat?.test ?? null)
+      setCatParams(cat?.params ?? [])
     }
     void load()
     return () => { mounted = false }
@@ -194,13 +195,65 @@ export function ResultDetailPage() {
     return 'INFO' as const
   }
 
-  function handlePrintPdf() {
-    if (!result?.pdf_url) return
-    const printWindow = window.open(result.pdf_url, '_blank')
-    if (printWindow) {
-      printWindow.onload = () => {
-        setTimeout(() => printWindow.print(), 500)
-      }
+  const isNarrative = catTest?.result_type === 'narrative'
+  const narrativeText = isNarrative ? result.parameters.findings?.value ?? '' : null
+  const rows = isNarrative
+    ? []
+    : catParams.length
+    ? catParams.map((p) => {
+        const rp = result.parameters[p.key]
+        return { name: p.name, value: rp?.value ?? '', unit: p.unit ?? '', ref: refText(p), status: (rp?.status ?? 'normal') as ResultParameterStatus }
+      })
+    : Object.entries(result.parameters).map(([k, rp]) => ({
+        name: k.replace(/_/g, ' '), value: rp.value, unit: rp.unit, ref: '—', status: rp.status
+      }))
+
+  async function handleGeneratePdf() {
+    if (!result || !patient) return
+    setGenerating(true)
+    try {
+      const lab = await db.labs.get(result.lab_id)
+      const staffId = result.approved_by ?? result.entered_by
+      const staff = staffId ? await db.lab_staff.where('user_id').equals(staffId).first() : null
+      const QRCode = (await import('qrcode')).default
+      const qrDataUrl = await QRCode.toDataURL(`${window.location.origin}/verify/${result.id}`, { margin: 1, width: 256 })
+      const [{ pdf }, { ResultPDF }] = await Promise.all([
+        import('@react-pdf/renderer'),
+        import('@/components/pdf/ResultPDF')
+      ])
+      const age = patient.date_of_birth
+        ? `${Math.floor((Date.now() - new Date(patient.date_of_birth).getTime()) / (365.25 * 86_400_000))} yrs`
+        : '—'
+      const blob = await pdf(
+        <ResultPDF
+          testName={catTest?.name ?? result.test_type}
+          patientName={patient.full_name}
+          patientLabid={result.labid}
+          patientAge={age}
+          patientGender={patient.gender ?? '—'}
+          referringDoctor={sample?.referring_doctor ?? ''}
+          collectionDate={sample ? formatDateTime(sample.collected_at) : '—'}
+          resultDate={formatDateTime(result.approved_at ?? result.updated_at)}
+          labName={lab?.name ?? 'Labid Health Laboratory'}
+          labAddress={lab?.address ?? ''}
+          labPhone={lab?.phone ?? ''}
+          mlscnNo={lab?.mlscn_no ?? '—'}
+          logoUrl={`${window.location.origin}/labid-mark.png`}
+          qrDataUrl={qrDataUrl}
+          reportId={`#${result.sample_id}`}
+          rows={rows}
+          narrativeText={narrativeText}
+          comments={result.comments}
+          criticalAcknowledged={result.critical_acknowledged}
+          scientistName={staff?.full_name ?? null}
+          scientistRa={null}
+        />
+      ).toBlob()
+      window.open(URL.createObjectURL(blob), '_blank')
+    } catch (error) {
+      toast.push(friendlyError(error), 'error')
+    } finally {
+      setGenerating(false)
     }
   }
 
@@ -216,16 +269,9 @@ export function ResultDetailPage() {
         </div>
         <div className="patient-detail__actions">
           <Badge status={resultStatusBadge()}>{result.status.replace(/_/g, ' ')}</Badge>
-          {result.pdf_url ? (
-            <>
-              <Button variant="secondary" onClick={handlePrintPdf}>
-                Print
-              </Button>
-              <Button variant="secondary" onClick={() => window.open(result.pdf_url!, '_blank')}>
-                Download PDF
-              </Button>
-            </>
-          ) : null}
+          <Button variant="secondary" loading={generating} onClick={() => void handleGeneratePdf()}>
+            Generate report
+          </Button>
         </div>
       </header>
 
@@ -255,37 +301,36 @@ export function ResultDetailPage() {
       <article className="detail-card">
         <h3>Parameters</h3>
         <div className="detail-timeline">
-          {Object.entries(result.parameters).map(([key, param]) => {
-            const abnormal = isAbnormal(param.status)
-            const low = isLow(param.status)
-            return (
-              <div key={key} className="result-parameter-row">
-                <strong>{key.replace(/_/g, ' ')}</strong>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <span
-                    style={{
-                      padding: '2px 10px',
-                      borderRadius: 'var(--radius-full)',
-                      fontWeight: abnormal || low ? 600 : 400,
-                      background: abnormal
-                        ? 'rgba(255,77,77,0.15)'
-                        : low
-                        ? 'rgba(255,184,0,0.15)'
-                        : 'transparent',
-                      color: abnormal
-                        ? 'var(--color-status-danger)'
-                        : low
-                        ? 'var(--color-status-warning)'
-                        : 'var(--color-text-primary)'
-                    }}
-                  >
-                    {param.value} {abnormal ? '↑' : low ? '↓' : ''}
-                  </span>
-                  <span style={{ color: 'var(--color-text-secondary)', fontSize: 12 }}>{param.unit}</span>
+          {isNarrative ? (
+            <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{narrativeText || '—'}</p>
+          ) : (
+            rows.map((r, i) => {
+              const hi = r.status === 'high' || r.status === 'critical_high'
+              const lo = r.status === 'low' || r.status === 'critical_low'
+              return (
+                <div key={i} className="result-parameter-row">
+                  <div>
+                    <strong>{r.name}</strong>
+                    {r.ref !== '—' ? <div className="list-subtitle">Ref: {r.ref}</div> : null}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <span
+                      style={{
+                        padding: '2px 10px',
+                        borderRadius: 'var(--radius-full)',
+                        fontWeight: hi || lo ? 600 : 400,
+                        background: hi ? 'var(--color-status-danger-bg)' : lo ? 'var(--color-status-warning-bg)' : 'transparent',
+                        color: hi ? 'var(--color-status-danger)' : lo ? 'var(--color-status-warning)' : 'var(--color-text-primary)'
+                      }}
+                    >
+                      {r.value || '—'} {hi ? '↑' : lo ? '↓' : ''}
+                    </span>
+                    <span style={{ color: 'var(--color-text-secondary)', fontSize: 12 }}>{r.unit}</span>
+                  </div>
                 </div>
-              </div>
-            )
-          })}
+              )
+            })
+          )}
         </div>
 
         {result.comments ? (

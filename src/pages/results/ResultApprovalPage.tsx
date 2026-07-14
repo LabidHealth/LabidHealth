@@ -10,7 +10,8 @@ import { offlineSuccessMessage } from '@/lib/offlineWrite'
 import { friendlyError } from '@/lib/supabaseQuery'
 import { supabase } from '@/lib/supabase'
 import { writeRecord } from '@/lib/writeRecord'
-import type { Lab, Notification, Patient, Result, ResultParameter, Sample, SampleEvent } from '@/types'
+import { getCatalogTest, refText } from '@/lib/catalog'
+import type { CatalogParameter, CatalogTest, Lab, Notification, Patient, Result, ResultParameter, ResultParameterStatus, Sample, SampleEvent } from '@/types'
 
 function isAbnormal(param: ResultParameter) {
   return param.status === 'high' || param.status === 'critical_high'
@@ -40,6 +41,8 @@ export function ResultApprovalPage() {
   const [patient, setPatient] = useState<Patient | null>(null)
   const [sample, setSample] = useState<Sample | null>(null)
   const [lab, setLab] = useState<Lab | null>(null)
+  const [catTest, setCatTest] = useState<CatalogTest | null>(null)
+  const [catParams, setCatParams] = useState<CatalogParameter[]>([])
   const [approving, setApproving] = useState(false)
   const [rejecting, setRejecting] = useState(false)
   const [rejectModalOpen, setRejectModalOpen] = useState(false)
@@ -62,6 +65,12 @@ export function ResultApprovalPage() {
       if (!mounted) return
       setPatient(patientRecord ?? null)
       setSample(sampleRecord ?? null)
+
+      const cat = await getCatalogTest(record.test_type)
+      if (mounted) {
+        setCatTest(cat?.test ?? null)
+        setCatParams(cat?.params ?? [])
+      }
 
       if (record.lab_id) {
         const labRecord = await db.labs.get(record.lab_id)
@@ -96,9 +105,20 @@ export function ResultApprovalPage() {
         import('@react-pdf/renderer'),
         import('@/components/pdf/ResultPDF')
       ])
+      const isNarrative = catTest?.result_type === 'narrative'
+      const narrativeText = isNarrative ? result.parameters.findings?.value ?? '' : null
+      const rows = isNarrative
+        ? []
+        : catParams.length
+        ? catParams.map((p) => {
+            const rp = result.parameters[p.key]
+            return { name: p.name, value: rp?.value ?? '', unit: p.unit ?? '', ref: refText(p), status: (rp?.status ?? 'normal') as ResultParameterStatus }
+          })
+        : Object.entries(result.parameters).map(([k, rp]) => ({ name: k.replace(/_/g, ' '), value: rp.value, unit: rp.unit, ref: '—', status: rp.status }))
+      const staff = user?.id ? await db.lab_staff.where('user_id').equals(user.id).first() : null
       const pdfBlob = await pdf(
         <ResultPDF
-          result={approved}
+          testName={catTest?.name ?? result.test_type}
           patientName={patient?.full_name ?? 'UNKNOWN'}
           patientLabid={result.labid}
           patientAge={calcAge(patient?.date_of_birth)}
@@ -113,19 +133,28 @@ export function ResultApprovalPage() {
           logoUrl={lab?.logo_url ?? null}
           qrDataUrl={qrDataUrl}
           reportId={reportId}
+          rows={rows}
+          narrativeText={narrativeText}
+          comments={approved.comments}
+          criticalAcknowledged={approved.critical_acknowledged}
+          scientistName={staff?.full_name ?? null}
+          scientistRa={null}
         />
       ).toBlob()
 
       let pdfUrl: string | null = null
       if (navigator.onLine) {
-        const filePath = `${labId}/${result.id}.pdf`
-        const { error: uploadError } = await supabase.storage
-          .from('result-pdfs')
-          .upload(filePath, pdfBlob, { contentType: 'application/pdf', upsert: true })
-
-        if (!uploadError) {
-          const { data: urlData } = supabase.storage.from('result-pdfs').getPublicUrl(filePath)
-          pdfUrl = urlData?.publicUrl ?? null
+        try {
+          const filePath = `${labId}/${result.id}.pdf`
+          const { error: uploadError } = await supabase.storage
+            .from('result-pdfs')
+            .upload(filePath, pdfBlob, { contentType: 'application/pdf', upsert: true })
+          if (!uploadError) {
+            const { data: urlData } = supabase.storage.from('result-pdfs').getPublicUrl(filePath)
+            pdfUrl = urlData?.publicUrl ?? null
+          }
+        } catch {
+          // No backend configured (offline dev) — skip upload; PDF still generated on demand.
         }
       }
 
