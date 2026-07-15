@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { patientRepo, priceRepo, resultRepo, sampleRepo } from '@/lib/repositories'
 import { useNavigate } from 'react-router-dom'
-import { db } from '@/lib/db'
 import type { Patient, PriceListItem, Result, ResultParameter, Sample } from '@/types'
 
 const ABBR: Record<string, string> = {
@@ -42,10 +42,10 @@ const fmtWait = (ms: number) => {
 
 async function computeSciData(): Promise<SciData> {
   const [samples, results, patients, prices] = await Promise.all([
-    db.samples.toArray() as Promise<Sample[]>,
-    db.results.toArray() as Promise<Result[]>,
-    db.patients.toArray() as Promise<Patient[]>,
-    db.price_list.toArray() as Promise<PriceListItem[]>
+    sampleRepo.all() as Promise<Sample[]>,
+    resultRepo.all() as Promise<Result[]>,
+    patientRepo.all() as Promise<Patient[]>,
+    priceRepo.all() as Promise<PriceListItem[]>
   ])
   const nameByLabid = new Map(patients.map((p) => [p.labid, p.full_name]))
   const testByCode = new Map(prices.map((p) => [p.test_code, p.test_name]))

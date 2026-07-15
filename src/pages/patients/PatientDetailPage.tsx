@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { invoiceRepo, patientRepo, resultRepo, visitRepo } from '@/lib/repositories'
 import QRCode from 'qrcode'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Avatar, Badge, Button, EmptyState } from '@/components/ui'
 import { useAuthContext } from '@/context/AuthContext'
-import { db } from '@/lib/db'
 import { formatDate, formatDateTime, formatNaira, formatPhone, formatTimeAgo } from '@/lib/formatters'
 import { openAndPrintPdfBlob } from '@/lib/printPdf'
 import { supabase } from '@/lib/supabase'
@@ -38,13 +38,13 @@ export function PatientDetailPage() {
     let mounted = true
 
     const load = async () => {
-      const currentPatient = await db.patients.get(patientId)
+      const currentPatient = await patientRepo.get(patientId)
       if (!mounted || !currentPatient) return
 
       const [patientVisits, patientResults, patientInvoices] = await Promise.all([
-        db.patient_visits.where('labid').equals(currentPatient.labid).reverse().sortBy('visited_at'),
-        db.results.where('labid').equals(currentPatient.labid).reverse().sortBy('created_at'),
-        db.invoices.where('labid').equals(currentPatient.labid).reverse().sortBy('created_at')
+        visitRepo.listByLabidRecent(currentPatient.labid),
+        resultRepo.listByLabidRecent(currentPatient.labid),
+        invoiceRepo.listByLabidRecent(currentPatient.labid)
       ])
 
       setPatient(currentPatient)

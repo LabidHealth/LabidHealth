@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
+import { invoiceRepo, patientRepo, paymentRepo, resultRepo, sampleRepo } from '@/lib/repositories'
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis } from 'recharts'
 import { Banknote, Clock, Download, ReceiptText } from 'lucide-react'
-import { db } from '@/lib/db'
 import { syncEngine } from '@/lib/sync'
 import { formatNaira } from '@/lib/formatters'
 import type { Invoice, Patient, Payment, PaymentMethod, Result, Sample } from '@/types'
@@ -52,11 +52,11 @@ interface OwnerMetrics {
 
 async function computeOwnerMetrics(): Promise<OwnerMetrics> {
   const [invoices, payments, samples, results, patients, pending, stuck] = await Promise.all([
-    db.invoices.toArray() as Promise<Invoice[]>,
-    db.payments.toArray() as Promise<Payment[]>,
-    db.samples.toArray() as Promise<Sample[]>,
-    db.results.toArray() as Promise<Result[]>,
-    db.patients.toArray() as Promise<Patient[]>,
+    invoiceRepo.all() as Promise<Invoice[]>,
+    paymentRepo.all() as Promise<Payment[]>,
+    sampleRepo.all() as Promise<Sample[]>,
+    resultRepo.all() as Promise<Result[]>,
+    patientRepo.all() as Promise<Patient[]>,
     syncEngine.pendingCount(),
     syncEngine.stuckCount()
   ])

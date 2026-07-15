@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { patientRepo, visitRepo } from '@/lib/repositories'
 import { MoreVertical, Search, UserPlus, Users } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import QRCode from 'qrcode'
 import { Avatar, Button, EmptyState, Input, Table, TableBody, TableCell, TableHead, TableRow } from '@/components/ui'
-import { db } from '@/lib/db'
 import { formatPhone, formatTimeAgo } from '@/lib/formatters'
 import { openAndPrintPdfBlob } from '@/lib/printPdf'
 import { buildPatientSearchValue, getNameSimilarity } from '@/lib/patientSearch'
@@ -27,8 +27,8 @@ async function syncPatientsFromSupabase() {
     supabase.from('patient_visits').select('*')
   ])
 
-  if (patients) await db.patients.bulkPut(patients)
-  if (visits) await db.patient_visits.bulkPut(visits)
+  if (patients) await patientRepo.bulkPut(patients)
+  if (visits) await visitRepo.bulkPut(visits)
 }
 
 function buildRows(patients: Patient[], visits: PatientVisit[]) {
@@ -66,7 +66,7 @@ export function PatientListPage() {
 
     const load = async () => {
       const refreshLocal = async () => {
-        const [patients, visits] = await Promise.all([db.patients.toArray(), db.patient_visits.toArray()])
+        const [patients, visits] = await Promise.all([patientRepo.all(), visitRepo.all()])
         if (mounted) setRows(buildRows(patients, visits))
       }
 

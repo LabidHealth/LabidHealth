@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { priceRepo } from '@/lib/repositories'
 import { Plus } from 'lucide-react'
 import { Button, Input, Modal, useToast } from '@/components/ui'
 import { useAuthContext } from '@/context/AuthContext'
-import { db } from '@/lib/db'
 import { formatNaira } from '@/lib/formatters'
 import { offlineWrite } from '@/lib/offlineWrite'
 import { friendlyError } from '@/lib/supabaseQuery'
@@ -83,7 +83,7 @@ export function PriceListPage() {
 
   useEffect(() => {
     if (!labId) return
-    void db.price_list.where('lab_id').equals(labId).toArray().then(setItems)
+    void priceRepo.listByLab(labId).then(setItems)
   }, [labId])
 
   async function updatePrice(item: PriceListItem, field: 'standard_price' | 'hmo_price' | 'corporate_price', kobo: number) {

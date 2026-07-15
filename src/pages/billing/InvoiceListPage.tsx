@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { invoiceRepo, patientRepo } from '@/lib/repositories'
 import { useNavigate } from 'react-router-dom'
 import { Badge, Button, EmptyState, Input, Table, TableBody, TableCell, TableHead, TableRow } from '@/components/ui'
 import { useAuthContext } from '@/context/AuthContext'
-import { db } from '@/lib/db'
 import { formatNaira, formatDateTime } from '@/lib/formatters'
 import { supabase } from '@/lib/supabase'
 import type { Invoice, Patient } from '@/types'
@@ -22,8 +22,8 @@ async function syncBillingFromSupabase() {
     supabase.from('invoices').select('*').order('created_at', { ascending: false }).limit(200),
     supabase.from('patients').select('*')
   ])
-  if (invoices) await db.invoices.bulkPut(invoices)
-  if (patients) await db.patients.bulkPut(patients)
+  if (invoices) await invoiceRepo.bulkPut(invoices)
+  if (patients) await patientRepo.bulkPut(patients)
 }
 
 export function InvoiceListPage() {
@@ -40,14 +40,14 @@ export function InvoiceListPage() {
     let mounted = true
     const load = async () => {
       const [localInvoices, localPatients] = await Promise.all([
-        db.invoices.orderBy('created_at').reverse().toArray(),
-        db.patients.toArray()
+        invoiceRepo.listRecent(),
+        patientRepo.all()
       ])
       if (mounted) { setInvoices(localInvoices); setPatients(localPatients) }
       await syncBillingFromSupabase()
       const [fresh, freshP] = await Promise.all([
-        db.invoices.orderBy('created_at').reverse().toArray(),
-        db.patients.toArray()
+        invoiceRepo.listRecent(),
+        patientRepo.all()
       ])
       if (mounted) { setInvoices(fresh); setPatients(freshP) }
     }

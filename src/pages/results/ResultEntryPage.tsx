@@ -1,13 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { patientRepo, resultRepo } from '@/lib/repositories'
 import { AlertTriangle } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Button, EmptyState, useToast } from '@/components/ui'
 import { useAuthContext } from '@/context/AuthContext'
-import { db } from '@/lib/db'
 import { formatDateTime } from '@/lib/formatters'
 import { offlineSuccessMessage } from '@/lib/offlineWrite'
 import { friendlyError } from '@/lib/supabaseQuery'
-import { writeRecord } from '@/lib/writeRecord'
 import { evaluateNumeric, evaluateQualitative, getCatalogTest, refText } from '@/lib/catalog'
 import { features } from '@/lib/features'
 import type {
@@ -49,11 +48,11 @@ export function ResultEntryPage() {
     if (!resultId) return
     let mounted = true
     void (async () => {
-      const record = await db.results.get(resultId)
+      const record = await resultRepo.get(resultId)
       if (!mounted) return
       setResult(record ?? null)
       if (record) {
-        const p = await db.patients.where('labid').equals(record.labid).first()
+        const p = await patientRepo.byLabid(record.labid)
         const cat = await getCatalogTest(record.test_type)
         if (!mounted) return
         setPatient(p ?? null)
@@ -123,7 +122,7 @@ export function ResultEntryPage() {
         critical_acknowledged_at: hasCritical && criticalAck ? now : null,
         updated_at: now
       }
-      await writeRecord('results', 'UPDATE', updated, result)
+      await resultRepo.update(updated, result)
       setResult(updated)
       toast.push(
         offlineSuccessMessage(

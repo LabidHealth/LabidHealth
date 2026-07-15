@@ -1,8 +1,8 @@
 import React, { useState } from 'react'
+import { invoiceRepo, labRepo, patientRepo, sampleRepo, visitRepo } from '@/lib/repositories'
 import { format, parseISO } from 'date-fns'
 import { Button, useToast } from '@/components/ui'
 import { useAuthContext } from '@/context/AuthContext'
-import { db } from '@/lib/db'
 import { formatDate } from '@/lib/formatters'
 import { friendlyError } from '@/lib/supabaseQuery'
 
@@ -146,13 +146,13 @@ export function ReportsPage() {
   }
 
   async function getLabInfo() {
-    const labs = await db.labs.toArray()
+    const labs = await labRepo.all()
     return { labName: labs[0]?.name ?? 'Lab', labAddress: labs[0]?.address ?? '' }
   }
 
   async function generateRevenue(from: Date, to: Date) {
-    const invoices = (await db.invoices.toArray()).filter((invoice) => inRange(invoice.created_at, from, toEndOfDay(to)))
-    const patients = await db.patients.toArray()
+    const invoices = (await invoiceRepo.all()).filter((invoice) => inRange(invoice.created_at, from, toEndOfDay(to)))
+    const patients = await patientRepo.all()
     const patientMap = new Map(patients.map((patient) => [patient.labid, patient.full_name]))
     const { labName, labAddress } = await getLabInfo()
     const period = `${format(from, 'dd MMM yyyy')} - ${format(to, 'dd MMM yyyy')}`
@@ -203,7 +203,7 @@ export function ReportsPage() {
   }
 
   async function generateTestVolume(from: Date, to: Date) {
-    const samples = (await db.samples.toArray()).filter((sample) => inRange(sample.collected_at, from, toEndOfDay(to)))
+    const samples = (await sampleRepo.all()).filter((sample) => inRange(sample.collected_at, from, toEndOfDay(to)))
     const { labName, labAddress } = await getLabInfo()
     const period = `${format(from, 'dd MMM yyyy')} - ${format(to, 'dd MMM yyyy')}`
     const generatedAt = format(new Date(), 'dd MMM yyyy, hh:mm a')
@@ -243,8 +243,8 @@ export function ReportsPage() {
   }
 
   async function generatePatient(from: Date, to: Date) {
-    const patients = (await db.patients.toArray()).filter((patient) => inRange(patient.created_at, from, toEndOfDay(to)))
-    const visits = await db.patient_visits.toArray()
+    const patients = (await patientRepo.all()).filter((patient) => inRange(patient.created_at, from, toEndOfDay(to)))
+    const visits = await visitRepo.all()
     const { labName, labAddress } = await getLabInfo()
     const period = `${format(from, 'dd MMM yyyy')} - ${format(to, 'dd MMM yyyy')}`
     const generatedAt = format(new Date(), 'dd MMM yyyy, hh:mm a')
@@ -312,8 +312,8 @@ export function ReportsPage() {
         const rangeEnd = toEndOfDay(to)
 
         if (type === 'revenue') {
-          const invoices = (await db.invoices.toArray()).filter((invoice) => inRange(invoice.created_at, from, rangeEnd))
-          const patients = await db.patients.toArray()
+          const invoices = (await invoiceRepo.all()).filter((invoice) => inRange(invoice.created_at, from, rangeEnd))
+          const patients = await patientRepo.all()
           const patientMap = new Map(patients.map((patient) => [patient.labid, patient.full_name]))
           const rows: string[][] = [['Invoice ID', 'Patient', 'LABID', 'Total (N)', 'Paid (N)', 'Outstanding (N)', 'Status', 'Date']]
           for (const invoice of invoices) {
@@ -330,7 +330,7 @@ export function ReportsPage() {
           }
           downloadCsv(`revenue-${fromStr}.csv`, rows)
         } else if (type === 'test_volume') {
-          const samples = (await db.samples.toArray()).filter((sample) => inRange(sample.collected_at, from, rangeEnd))
+          const samples = (await sampleRepo.all()).filter((sample) => inRange(sample.collected_at, from, rangeEnd))
           const testCounts = new Map<string, number>()
           for (const sample of samples) {
             for (const test of sample.tests_ordered) testCounts.set(test, (testCounts.get(test) ?? 0) + 1)
@@ -339,7 +339,7 @@ export function ReportsPage() {
           for (const [test, count] of Array.from(testCounts.entries()).sort((a, b) => b[1] - a[1])) rows.push([test, String(count)])
           downloadCsv(`test-volume-${fromStr}.csv`, rows)
         } else {
-          const patients = (await db.patients.toArray()).filter((patient) => inRange(patient.created_at, from, rangeEnd))
+          const patients = (await patientRepo.all()).filter((patient) => inRange(patient.created_at, from, rangeEnd))
           const rows: string[][] = [['Full Name', 'LABID', 'Gender', 'Phone', 'Registered']]
           for (const patient of patients) {
             rows.push([patient.full_name, patient.labid, patient.gender ?? '', patient.phone, formatDate(patient.created_at)])

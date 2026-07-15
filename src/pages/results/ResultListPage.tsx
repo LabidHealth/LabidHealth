@@ -1,14 +1,13 @@
 import React, { useEffect, useState } from 'react'
+import { amendmentRepo, patientRepo, resultRepo } from '@/lib/repositories'
 import { CheckCircle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Avatar, Badge, Button, EmptyState, Input, Modal, Table, TableBody, TableCell, TableHead, TableRow, useToast } from '@/components/ui'
 import { RoleGuard } from '@/components/shared/RoleGuard'
 import { useAuthContext } from '@/context/AuthContext'
-import { db } from '@/lib/db'
 import { formatTimeAgo, formatDateTime } from '@/lib/formatters'
 import { offlineSuccessMessage } from '@/lib/offlineWrite'
 import { friendlyError } from '@/lib/supabaseQuery'
-import { writeRecord } from '@/lib/writeRecord'
 import { supabase } from '@/lib/supabase'
 import type { Patient, Result, ResultAmendment } from '@/types'
 
@@ -26,8 +25,8 @@ async function syncResultsFromSupabase() {
     supabase.from('results').select('*').order('created_at', { ascending: false }).limit(200),
     supabase.from('patients').select('*')
   ])
-  if (results) await db.results.bulkPut(results)
-  if (patients) await db.patients.bulkPut(patients)
+  if (results) await resultRepo.bulkPut(results)
+  if (patients) await patientRepo.bulkPut(patients)
 }
 
 export function ResultListPage() {
@@ -52,8 +51,8 @@ export function ResultListPage() {
     let mounted = true
     const load = async () => {
       const [localResults, localPatients] = await Promise.all([
-        db.results.orderBy('created_at').reverse().toArray(),
-        db.patients.toArray()
+        resultRepo.listRecent(),
+        patientRepo.all()
       ])
       if (mounted) {
         setResults(localResults)
@@ -61,8 +60,8 @@ export function ResultListPage() {
       }
       await syncResultsFromSupabase()
       const [freshResults, freshPatients] = await Promise.all([
-        db.results.orderBy('created_at').reverse().toArray(),
-        db.patients.toArray()
+        resultRepo.listRecent(),
+        patientRepo.all()
       ])
       if (mounted) {
         setResults(freshResults)
@@ -115,7 +114,7 @@ export function ResultListPage() {
         amended_by: null,
         amended_at: now
       }
-      await writeRecord('result_amendments', 'INSERT', amendment)
+      await amendmentRepo.create(amendment)
 
       // Reopen result for editing
       const reopened: Result = {
@@ -125,7 +124,7 @@ export function ResultListPage() {
         approved_at: null,
         updated_at: now
       }
-      await writeRecord('results', 'UPDATE', reopened, amendTarget)
+      await resultRepo.update(reopened, amendTarget)
       setResults((prev) => prev.map((r) => (r.id === reopened.id ? reopened : r)))
 
       toast.push(offlineSuccessMessage('Result reopened for amendment'))

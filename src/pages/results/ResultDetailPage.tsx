@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react'
+import { labRepo, patientRepo, resultRepo, sampleRepo, staffRepo } from '@/lib/repositories'
 import { MessageSquare, Phone, AlertTriangle } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Badge, Button, EmptyState, useToast } from '@/components/ui'
 import { RoleGuard } from '@/components/shared/RoleGuard'
 import { useAuthContext } from '@/context/AuthContext'
-import { db } from '@/lib/db'
 import { formatDateTime, formatTimeAgo } from '@/lib/formatters'
 import { getDeliveryStatus, resendNotification } from '@/lib/notifications'
 import { offlineSuccessMessage } from '@/lib/offlineWrite'
@@ -159,12 +159,12 @@ export function ResultDetailPage() {
     if (!resultId) return
     let mounted = true
     const load = async () => {
-      const record = await db.results.get(resultId)
+      const record = await resultRepo.get(resultId)
       if (!mounted || !record) return
       setResult(record)
       const [patientRecord, sampleRecord, cat] = await Promise.all([
-        db.patients.where('labid').equals(record.labid).first(),
-        db.samples.where('sample_id').equals(record.sample_id).first(),
+        patientRepo.byLabid(record.labid),
+        sampleRepo.bySampleId(record.sample_id),
         getCatalogTest(record.test_type)
       ])
       if (!mounted) return
@@ -212,9 +212,9 @@ export function ResultDetailPage() {
     if (!result || !patient) return
     setGenerating(true)
     try {
-      const lab = await db.labs.get(result.lab_id)
+      const lab = await labRepo.get(result.lab_id)
       const staffId = result.approved_by ?? result.entered_by
-      const staff = staffId ? await db.lab_staff.where('user_id').equals(staffId).first() : null
+      const staff = staffId ? await staffRepo.byUser(staffId) : null
       const QRCode = (await import('qrcode')).default
       const qrDataUrl = await QRCode.toDataURL(`${window.location.origin}/verify/${result.id}`, { margin: 1, width: 256 })
       const [{ pdf }, { ResultPDF }] = await Promise.all([

@@ -1,12 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { patientRepo, sampleEventRepo, sampleRepo } from '@/lib/repositories'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Badge, Button, EmptyState, Input, Modal, useToast } from '@/components/ui'
 import { useAuthContext } from '@/context/AuthContext'
-import { db } from '@/lib/db'
 import { formatDateTime, formatTimeAgo } from '@/lib/formatters'
 import { offlineSuccessMessage } from '@/lib/offlineWrite'
 import { friendlyError } from '@/lib/supabaseQuery'
-import { writeRecord } from '@/lib/writeRecord'
 import type { Patient, Sample, SampleEvent, SampleStatus } from '@/types'
 
 const STATUS_FLOW: SampleStatus[] = ['received', 'processing', 'awaiting_approval', 'ready', 'delivered']
@@ -36,13 +35,13 @@ export function SampleDetailPage() {
     if (!sampleId) return
     let mounted = true
     const load = async () => {
-      const record = await db.samples.get(sampleId)
+      const record = await sampleRepo.get(sampleId)
       if (!mounted) return
       setSample(record ?? null)
       if (record) {
         const [patientRecord, sampleEvents] = await Promise.all([
-          db.patients.where('labid').equals(record.labid).first(),
-          db.sample_events.where('sample_id').equals(record.sample_id).sortBy('created_at')
+          patientRepo.byLabid(record.labid),
+          sampleEventRepo.listBySampleSorted(record.sample_id)
         ])
         if (!mounted) return
         setPatient(patientRecord ?? null)
@@ -73,7 +72,7 @@ export function SampleDetailPage() {
     try {
       const now = new Date().toISOString()
       const updated: Sample = { ...sample, status: to, updated_at: now }
-      await writeRecord('samples', 'UPDATE', updated, sample)
+      await sampleRepo.update(updated, sample)
       setSample(updated)
 
       const event: SampleEvent = {
@@ -85,7 +84,7 @@ export function SampleDetailPage() {
         notes: `${from} -> ${to}`,
         created_at: now
       }
-      await writeRecord('sample_events', 'INSERT', event)
+      await sampleEventRepo.create(event)
       setEvents((prev) => [...prev, event])
       toast.push(offlineSuccessMessage(`Status updated to ${to.replace(/_/g, ' ')}`))
       setStatusOpen(false)
@@ -112,7 +111,7 @@ export function SampleDetailPage() {
         rejection_reason: rejectReason.trim(),
         updated_at: now
       }
-      await writeRecord('samples', 'UPDATE', updated, sample)
+      await sampleRepo.update(updated, sample)
       setSample(updated)
 
       const event: SampleEvent = {
@@ -124,7 +123,7 @@ export function SampleDetailPage() {
         notes: rejectReason.trim(),
         created_at: now
       }
-      await writeRecord('sample_events', 'INSERT', event)
+      await sampleEventRepo.create(event)
       setEvents((prev) => [...prev, event])
       toast.push(offlineSuccessMessage('Sample rejected'), 'warning')
       setRejectOpen(false)

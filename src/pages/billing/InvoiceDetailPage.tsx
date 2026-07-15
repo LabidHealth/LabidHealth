@@ -1,13 +1,12 @@
 import React, { useEffect, useState } from 'react'
+import { invoiceRepo, labRepo, patientRepo, paymentRepo } from '@/lib/repositories'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Badge, Button, EmptyState, Input, useToast } from '@/components/ui'
 import { useAuthContext } from '@/context/AuthContext'
-import { db } from '@/lib/db'
 import { formatNaira, formatDateTime } from '@/lib/formatters'
 import { offlineSuccessMessage } from '@/lib/offlineWrite'
 import { openAndPrintPdfBlob } from '@/lib/printPdf'
 import { friendlyError } from '@/lib/supabaseQuery'
-import { writeRecord } from '@/lib/writeRecord'
 import type { Invoice, Lab, Patient, Payment, PaymentMethod } from '@/types'
 
 const PAYMENT_METHODS: PaymentMethod[] = ['cash', 'pos', 'bank_transfer', 'opay', 'palmpay']
@@ -48,13 +47,13 @@ export function InvoiceDetailPage() {
     let mounted = true
 
     const load = async () => {
-      const inv = await db.invoices.get(invoiceId)
+      const inv = await invoiceRepo.get(invoiceId)
       if (!mounted || !inv) return
 
       setInvoice(inv)
       const [patientRecord, paymentRecords] = await Promise.all([
-        db.patients.where('labid').equals(inv.labid).first(),
-        db.payments.where('invoice_id').equals(inv.id).toArray()
+        patientRepo.byLabid(inv.labid),
+        paymentRepo.listByInvoice(inv.id)
       ])
 
       if (!mounted) return
@@ -62,7 +61,7 @@ export function InvoiceDetailPage() {
       setPayments(paymentRecords)
 
       if (inv.lab_id) {
-        const labRecord = await db.labs.get(inv.lab_id)
+        const labRecord = await labRepo.get(inv.lab_id)
         if (mounted) setLab(labRecord ?? null)
       }
     }
@@ -102,7 +101,7 @@ export function InvoiceDetailPage() {
         created_at: now
       }
 
-      await writeRecord('payments', 'INSERT', payment)
+      await paymentRepo.create(payment)
       setPayments((prev) => [...prev, payment])
 
       const newPaid = invoice.amount_paid + kobo
@@ -116,7 +115,7 @@ export function InvoiceDetailPage() {
         updated_at: now
       }
 
-      await writeRecord('invoices', 'UPDATE', updated, invoice)
+      await invoiceRepo.update(updated, invoice)
       setInvoice(updated)
       setAmount('')
       setReference('')

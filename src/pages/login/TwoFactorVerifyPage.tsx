@@ -1,9 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { staffRepo } from '@/lib/repositories'
 import { useNavigate } from 'react-router-dom'
 import { useAuthContext } from '@/context/AuthContext'
-import { db } from '@/lib/db'
 import { friendlyError } from '@/lib/supabaseQuery'
-import { writeRecord } from '@/lib/writeRecord'
 import { supabase } from '@/lib/supabase'
 import type { LabStaff } from '@/types'
 
@@ -30,13 +29,10 @@ export function TwoFactorVerifyPage() {
 
   async function markTwoFactorEnabled() {
     if (!user) return
-    const staffRecord = await db.lab_staff.where('user_id').equals(user.id).first()
+    const staffRecord = await staffRepo.byUser(user.id)
     if (!staffRecord || staffRecord.two_factor_enabled) return
 
-    await writeRecord(
-      'lab_staff',
-      'UPDATE',
-      {
+    await staffRepo.update({
         ...staffRecord,
         two_factor_enabled: true,
         updated_at: new Date().toISOString()

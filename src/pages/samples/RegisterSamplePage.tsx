@@ -1,11 +1,10 @@
 import React, { useEffect, useState } from 'react'
+import { invoiceRepo, patientRepo, priceRepo, sampleEventRepo, sampleRepo } from '@/lib/repositories'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Button, EmptyState, Input, useToast } from '@/components/ui'
 import { useAuthContext } from '@/context/AuthContext'
-import { db } from '@/lib/db'
 import { offlineSuccessMessage } from '@/lib/offlineWrite'
 import { friendlyError, supabaseQuery } from '@/lib/supabaseQuery'
-import { writeRecord } from '@/lib/writeRecord'
 import type { InvoiceLineItem, Patient, PriceListItem, Sample, SampleEvent } from '@/types'
 
 type TestCategory = {
@@ -75,7 +74,7 @@ function generateSampleId() {
 
 async function loadPriceList(labId: string | null) {
   if (!labId) return []
-  const local = await db.price_list.where('lab_id').equals(labId).toArray()
+  const local = await priceRepo.listByLab(labId)
   if (local.length > 0 || !navigator.onLine) return local
 
   const { data } = await supabaseQuery<PriceListItem[]>(
@@ -86,7 +85,7 @@ async function loadPriceList(labId: string | null) {
   )
 
   if (data) {
-    await db.price_list.bulkPut(data)
+    await priceRepo.bulkPut(data)
     return data
   }
   return local
@@ -113,7 +112,7 @@ export function RegisterSamplePage() {
       return
     }
     let mounted = true
-    void db.patients.where('labid').equals(labid).first().then((match) => {
+    void patientRepo.byLabid(labid).then((match) => {
       if (mounted) setPatient(match ?? null)
     })
     return () => {
@@ -160,7 +159,7 @@ export function RegisterSamplePage() {
         updated_at: now
       }
 
-      await writeRecord('samples', 'INSERT', sample)
+      await sampleRepo.create(sample)
 
       const event: SampleEvent = {
         id: crypto.randomUUID(),
@@ -171,7 +170,7 @@ export function RegisterSamplePage() {
         notes: null,
         created_at: now
       }
-      await writeRecord('sample_events', 'INSERT', event)
+      await sampleEventRepo.create(event)
 
       const priceList = await loadPriceList(labId)
       const priceByCode = new Map(priceList.filter((item) => item.is_active).map((item) => [item.test_code, item.standard_price] as const))
@@ -184,7 +183,7 @@ export function RegisterSamplePage() {
       }))
 
       const subtotal = lineItems.reduce((sum, item) => sum + item.price, 0)
-      await writeRecord('invoices', 'INSERT', {
+      await invoiceRepo.create({
         id: crypto.randomUUID(),
         invoice_id: `INV-${`${Math.floor(Math.random() * 9999) + 1}`.padStart(4, '0')}`,
         labid: patient.labid,

@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react'
+import { patientRepo, visitRepo } from '@/lib/repositories'
 import { useForm } from 'react-hook-form'
 import { useNavigate } from 'react-router-dom'
 import { Button, Input, Modal, PhoneInput, useToast } from '@/components/ui'
@@ -8,7 +9,6 @@ import { generateLocalLabid } from '@/lib/labid'
 import { offlineSuccessMessage } from '@/lib/offlineWrite'
 import { supabase } from '@/lib/supabase'
 import { friendlyError } from '@/lib/supabaseQuery'
-import { writeRecord } from '@/lib/writeRecord'
 
 interface FormValues {
   full_name: string
@@ -53,7 +53,7 @@ export function RegisterPatientPage() {
     const now = new Date().toISOString()
     const patientId = crypto.randomUUID()
 
-    await writeRecord('patients', 'INSERT', {
+    await patientRepo.create({
       id: patientId,
       labid,
       full_name: data.full_name.trim(),
@@ -71,7 +71,7 @@ export function RegisterPatientPage() {
     })
 
     if (labId) {
-      await writeRecord('patient_visits', 'INSERT', {
+      await visitRepo.create({
         id: crypto.randomUUID(),
         labid,
         lab_id: labId,
@@ -91,7 +91,7 @@ export function RegisterPatientPage() {
     }
 
     const now = new Date().toISOString()
-    await writeRecord('patient_visits', 'INSERT', {
+    await visitRepo.create({
       id: crypto.randomUUID(),
       labid: candidate.patient.labid,
       lab_id: labId,

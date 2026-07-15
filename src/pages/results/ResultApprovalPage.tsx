@@ -1,15 +1,14 @@
 import React, { useEffect, useState } from 'react'
+import { labRepo, notificationRepo, patientRepo, resultRepo, sampleEventRepo, sampleRepo, staffRepo } from '@/lib/repositories'
 import QRCode from 'qrcode'
 import { AlertTriangle } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Badge, Button, EmptyState, Input, Modal, useToast } from '@/components/ui'
 import { useAuthContext } from '@/context/AuthContext'
-import { db } from '@/lib/db'
 import { formatDate, formatDateTime } from '@/lib/formatters'
 import { offlineSuccessMessage } from '@/lib/offlineWrite'
 import { friendlyError } from '@/lib/supabaseQuery'
 import { supabase } from '@/lib/supabase'
-import { writeRecord } from '@/lib/writeRecord'
 import { getCatalogTest, refText } from '@/lib/catalog'
 import type { CatalogParameter, CatalogTest, Lab, Notification, Patient, Result, ResultParameter, ResultParameterStatus, Sample, SampleEvent } from '@/types'
 
@@ -53,13 +52,13 @@ export function ResultApprovalPage() {
     let mounted = true
 
     const load = async () => {
-      const record = await db.results.get(resultId)
+      const record = await resultRepo.get(resultId)
       if (!mounted || !record) return
       setResult(record)
 
       const [patientRecord, sampleRecord] = await Promise.all([
-        db.patients.where('labid').equals(record.labid).first(),
-        db.samples.where('sample_id').equals(record.sample_id).first()
+        patientRepo.byLabid(record.labid),
+        sampleRepo.bySampleId(record.sample_id)
       ])
 
       if (!mounted) return
@@ -73,7 +72,7 @@ export function ResultApprovalPage() {
       }
 
       if (record.lab_id) {
-        const labRecord = await db.labs.get(record.lab_id)
+        const labRecord = await labRepo.get(record.lab_id)
         if (mounted) setLab(labRecord ?? null)
       }
     }
@@ -115,7 +114,7 @@ export function ResultApprovalPage() {
             return { name: p.name, value: rp?.value ?? '', unit: p.unit ?? '', ref: refText(p), status: (rp?.status ?? 'normal') as ResultParameterStatus }
           })
         : Object.entries(result.parameters).map(([k, rp]) => ({ name: k.replace(/_/g, ' '), value: rp.value, unit: rp.unit, ref: '—', status: rp.status }))
-      const staff = user?.id ? await db.lab_staff.where('user_id').equals(user.id).first() : null
+      const staff = user?.id ? await staffRepo.byUser(user.id) : null
       const pdfBlob = await pdf(
         <ResultPDF
           testName={catTest?.name ?? result.test_type}
@@ -163,7 +162,7 @@ export function ResultApprovalPage() {
         pdf_url: pdfUrl,
         pdf_generated_at: pdfUrl ? now : null
       }
-      await writeRecord('results', 'UPDATE', finalResult, result)
+      await resultRepo.update(finalResult, result)
       setResult(finalResult)
 
       const approvalEvent: SampleEvent = {
@@ -175,7 +174,7 @@ export function ResultApprovalPage() {
         notes: null,
         created_at: now
       }
-      await writeRecord('sample_events', 'INSERT', approvalEvent)
+      await sampleEventRepo.create(approvalEvent)
 
       const notification: Notification = {
         id: crypto.randomUUID(),
@@ -197,7 +196,7 @@ export function ResultApprovalPage() {
         superseded_by: null,
         created_at: now
       }
-      await writeRecord('notifications', 'INSERT', notification)
+      await notificationRepo.create(notification)
 
       toast.push(offlineSuccessMessage('Result approved - PDF generated and patient notified'))
       navigate(`/app/results/${result.id}`)
@@ -218,7 +217,7 @@ export function ResultApprovalPage() {
     try {
       const now = new Date().toISOString()
       const rejected: Result = { ...result, status: 'draft', updated_at: now }
-      await writeRecord('results', 'UPDATE', rejected, result)
+      await resultRepo.update(rejected, result)
       setResult(rejected)
 
       if (labId) {
@@ -242,7 +241,7 @@ export function ResultApprovalPage() {
           superseded_by: null,
           created_at: now
         }
-        await writeRecord('notifications', 'INSERT', notification)
+        await notificationRepo.create(notification)
       }
 
       toast.push(offlineSuccessMessage('Result sent back for correction'), 'warning')

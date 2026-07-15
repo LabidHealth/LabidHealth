@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { invoiceRepo, notificationRepo, patientRepo, resultRepo, sampleRepo, staffRepo, visitRepo } from '@/lib/repositories'
 import { format, subDays } from 'date-fns'
 import {
   Bar, BarChart, CartesianGrid, Cell, Line, LineChart,
@@ -7,7 +8,6 @@ import {
 import { useNavigate } from 'react-router-dom'
 import { Button, EmptyState, StatCard } from '@/components/ui'
 import { useAuthContext } from '@/context/AuthContext'
-import { db } from '@/lib/db'
 import { formatNaira, formatTimeAgo } from '@/lib/formatters'
 import { resendNotification } from '@/lib/notifications'
 import { supabase } from '@/lib/supabase'
@@ -114,13 +114,13 @@ async function syncDashboardTables() {
     supabase.from('patient_visits').select('*'),
     supabase.from('lab_staff').select('*')
   ])
-  if (samples.status === 'fulfilled' && samples.value.data) await db.samples.bulkPut(samples.value.data)
-  if (results.status === 'fulfilled' && results.value.data) await db.results.bulkPut(results.value.data)
-  if (invoices.status === 'fulfilled' && invoices.value.data) await db.invoices.bulkPut(invoices.value.data)
-  if (notifications.status === 'fulfilled' && notifications.value.data) await db.notifications.bulkPut(notifications.value.data)
-  if (patients.status === 'fulfilled' && patients.value.data) await db.patients.bulkPut(patients.value.data)
-  if (visits.status === 'fulfilled' && visits.value.data) await db.patient_visits.bulkPut(visits.value.data)
-  if (staff.status === 'fulfilled' && staff.value.data) await db.lab_staff.bulkPut(staff.value.data)
+  if (samples.status === 'fulfilled' && samples.value.data) await sampleRepo.bulkPut(samples.value.data)
+  if (results.status === 'fulfilled' && results.value.data) await resultRepo.bulkPut(results.value.data)
+  if (invoices.status === 'fulfilled' && invoices.value.data) await invoiceRepo.bulkPut(invoices.value.data)
+  if (notifications.status === 'fulfilled' && notifications.value.data) await notificationRepo.bulkPut(notifications.value.data)
+  if (patients.status === 'fulfilled' && patients.value.data) await patientRepo.bulkPut(patients.value.data)
+  if (visits.status === 'fulfilled' && visits.value.data) await visitRepo.bulkPut(visits.value.data)
+  if (staff.status === 'fulfilled' && staff.value.data) await staffRepo.bulkPut(staff.value.data)
 }
 
 function buildMetrics(
@@ -246,9 +246,9 @@ export function DashboardPage() {
     const load = async () => {
       const refresh = async () => {
         const [samples, results, invoices, notifications, patients, visits, staff] = await Promise.all([
-          db.samples.toArray(), db.results.toArray(), db.invoices.toArray(),
-          db.notifications.toArray(), db.patients.toArray(),
-          db.patient_visits.toArray(), db.lab_staff.toArray()
+          sampleRepo.all(), resultRepo.all(), invoiceRepo.all(),
+          notificationRepo.all(), patientRepo.all(),
+          visitRepo.all(), staffRepo.all()
         ])
         if (!mounted) return
         setMetrics(buildMetrics(samples, results, invoices, notifications, patients, visits, staff))

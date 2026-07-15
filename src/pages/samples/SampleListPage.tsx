@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { patientRepo, sampleRepo } from '@/lib/repositories'
 import { Search } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Badge, Button, EmptyState, Input, Table, TableBody, TableCell, TableHead, TableRow } from '@/components/ui'
-import { db } from '@/lib/db'
 import { formatTimeAgo } from '@/lib/formatters'
 import type { Patient, Sample } from '@/types'
 
@@ -27,7 +27,7 @@ export function SampleListPage() {
   useEffect(() => {
     let mounted = true
     const load = async () => {
-      const [localSamples, localPatients] = await Promise.all([db.samples.toArray(), db.patients.toArray()])
+      const [localSamples, localPatients] = await Promise.all([sampleRepo.all(), patientRepo.all()])
       if (!mounted) return
       setSamples(localSamples)
       setPatients(localPatients)

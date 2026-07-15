@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
+import { invoiceRepo, patientRepo, priceRepo, sampleRepo } from '@/lib/repositories'
 import { useNavigate } from 'react-router-dom'
 import { UserPlus } from 'lucide-react'
-import { db } from '@/lib/db'
 import type { Invoice, InvoiceStatus, Patient, PriceListItem, Sample } from '@/types'
 
 const startOfDay = () => {
@@ -37,10 +37,10 @@ interface FdData {
 
 async function computeFdData(): Promise<FdData> {
   const [samples, invoices, patients, prices] = await Promise.all([
-    db.samples.toArray() as Promise<Sample[]>,
-    db.invoices.toArray() as Promise<Invoice[]>,
-    db.patients.toArray() as Promise<Patient[]>,
-    db.price_list.toArray() as Promise<PriceListItem[]>
+    sampleRepo.all() as Promise<Sample[]>,
+    invoiceRepo.all() as Promise<Invoice[]>,
+    patientRepo.all() as Promise<Patient[]>,
+    priceRepo.all() as Promise<PriceListItem[]>
   ])
   const nameByLabid = new Map(patients.map((p) => [p.labid, p.full_name]))
   const testByCode = new Map(prices.map((p) => [p.test_code, p.test_name]))

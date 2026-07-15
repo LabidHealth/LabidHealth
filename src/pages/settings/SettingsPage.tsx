@@ -1,12 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { labRepo, staffRepo } from '@/lib/repositories'
 import { useNavigate } from 'react-router-dom'
 import { Button, Input, useToast } from '@/components/ui'
 import { useAuthContext } from '@/context/AuthContext'
-import { db } from '@/lib/db'
 import { compressImage } from '@/lib/compressImage'
 import { offlineSuccessMessage } from '@/lib/offlineWrite'
 import { friendlyError } from '@/lib/supabaseQuery'
-import { writeRecord } from '@/lib/writeRecord'
 import { supabase } from '@/lib/supabase'
 import type { Lab, LabStaff, UserRole } from '@/types'
 
@@ -56,7 +55,7 @@ export function SettingsPage() {
   }, [])
 
   async function loadData() {
-    const [labs, staffList] = await Promise.all([db.labs.toArray(), db.lab_staff.toArray()])
+    const [labs, staffList] = await Promise.all([labRepo.all(), staffRepo.all()])
     const currentLab = labs[0] ?? null
     setLab(currentLab)
     if (currentLab) {
@@ -88,10 +87,10 @@ export function SettingsPage() {
       supabase.from('lab_staff').select('*').eq('is_active', true as never)
     ])
 
-    if (labData) await db.labs.bulkPut(labData)
-    if (staffData) await db.lab_staff.bulkPut(staffData)
+    if (labData) await labRepo.bulkPut(labData)
+    if (staffData) await staffRepo.bulkPut(staffData)
 
-    const [freshLabs, freshStaff] = await Promise.all([db.labs.toArray(), db.lab_staff.toArray()])
+    const [freshLabs, freshStaff] = await Promise.all([labRepo.all(), staffRepo.all()])
     const freshLab = freshLabs[0] ?? null
     setLab(freshLab)
     if (freshLab) {
@@ -128,7 +127,7 @@ export function SettingsPage() {
         pdf_disclaimer: profileForm.pdf_disclaimer.trim(),
         updated_at: new Date().toISOString()
       }
-      await writeRecord('labs', 'UPDATE', updated, lab)
+      await labRepo.update(updated, lab)
       setLab(updated)
       toast.push(offlineSuccessMessage('Lab profile saved'))
     } catch (err) {
@@ -155,7 +154,7 @@ export function SettingsPage() {
 
       const { data: urlData } = supabase.storage.from('lab-logos').getPublicUrl(path)
       const updated: Lab = { ...lab, logo_url: urlData.publicUrl, updated_at: new Date().toISOString() }
-      await writeRecord('labs', 'UPDATE', updated, lab)
+      await labRepo.update(updated, lab)
       setLab(updated)
       toast.push('Logo uploaded')
     } catch (err) {
@@ -194,7 +193,7 @@ export function SettingsPage() {
         updated_at: now
       }
 
-      await writeRecord('lab_staff', 'INSERT', newStaff)
+      await staffRepo.create(newStaff)
       setStaff((prev) => [...prev, newStaff])
       toast.push(`Invitation sent to ${inviteEmail.trim()}`)
       setInviteEmail('')
@@ -215,7 +214,7 @@ export function SettingsPage() {
         is_active: false,
         updated_at: new Date().toISOString()
       }
-      await writeRecord('lab_staff', 'UPDATE', updated, member)
+      await staffRepo.update(updated, member)
       setStaff((prev) => prev.filter((item) => item.id !== member.id))
       toast.push(offlineSuccessMessage(`${member.full_name} deactivated`))
     } catch (err) {
