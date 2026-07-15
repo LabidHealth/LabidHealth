@@ -2,19 +2,25 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { patientRepo, sampleRepo } from '@/lib/repositories'
 import { Search } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { Badge, Button, EmptyState, Input, Table, TableBody, TableCell, TableHead, TableRow } from '@/components/ui'
+import { Button, EmptyState } from '@/components/ui'
 import { formatTimeAgo } from '@/lib/formatters'
 import type { Patient, Sample } from '@/types'
 
 type StatusFilter = 'received' | 'processing' | 'awaiting_approval' | 'ready' | 'delivered'
 
-const PIPELINE: Array<{ status: StatusFilter; label: string }> = [
-  { status: 'received', label: 'RECEIVED' },
-  { status: 'processing', label: 'PROCESSING' },
-  { status: 'awaiting_approval', label: 'AWAITING APPROVAL' },
-  { status: 'ready', label: 'READY' },
-  { status: 'delivered', label: 'DELIVERED' }
+const PIPELINE: Array<{ status: StatusFilter; label: string; warn?: boolean }> = [
+  { status: 'received', label: 'Received' },
+  { status: 'processing', label: 'In progress' },
+  { status: 'awaiting_approval', label: 'Awaiting approval', warn: true },
+  { status: 'ready', label: 'Ready' },
+  { status: 'delivered', label: 'Delivered' }
 ]
+const CHIP: Record<string, string> = {
+  received: 'c-slate', processing: 'c-amber', awaiting_approval: 'c-blue', ready: 'c-blue', delivered: 'c-green', rejected: 'c-red'
+}
+const LABEL: Record<string, string> = {
+  received: 'Received', processing: 'In progress', awaiting_approval: 'Awaiting approval', ready: 'Ready', delivered: 'Delivered', rejected: 'Rejected'
+}
 
 export function SampleListPage() {
   const navigate = useNavigate()
@@ -26,156 +32,123 @@ export function SampleListPage() {
 
   useEffect(() => {
     let mounted = true
-    const load = async () => {
+    void (async () => {
       const [localSamples, localPatients] = await Promise.all([sampleRepo.all(), patientRepo.all()])
       if (!mounted) return
       setSamples(localSamples)
       setPatients(localPatients)
-    }
-    void load()
+    })()
     return () => {
       mounted = false
     }
   }, [])
 
   const counts = useMemo(() => {
-    const map: Record<StatusFilter, number> = {
-      received: 0,
-      processing: 0,
-      awaiting_approval: 0,
-      ready: 0,
-      delivered: 0
-    }
-    for (const sample of samples) {
-      if (sample.status in map) map[sample.status as StatusFilter] += 1
-    }
+    const map: Record<StatusFilter, number> = { received: 0, processing: 0, awaiting_approval: 0, ready: 0, delivered: 0 }
+    for (const s of samples) if (s.status in map) map[s.status as StatusFilter] += 1
     return map
   }, [samples])
 
-  const filtered = useMemo(() => {
-    const lowered = search.trim().toLowerCase()
-    const now = new Date()
-    const start = new Date(now)
-    start.setHours(0, 0, 0, 0)
-    if (range === 'week') start.setDate(now.getDate() - 7)
-
-    const patientByLabid = new Map(patients.map((p) => [p.labid, p]))
-
-    return samples
-      .filter((sample) => sample.status === filter)
-      .filter((sample) => new Date(sample.collected_at).getTime() >= start.getTime())
-      .filter((sample) => {
-        if (!lowered) return true
-        const patient = patientByLabid.get(sample.labid)
-        const patientName = patient?.full_name?.toLowerCase() ?? ''
-        return (
-          sample.sample_id.toLowerCase().includes(lowered) ||
-          sample.labid.toLowerCase().includes(lowered) ||
-          patientName.includes(lowered)
-        )
-      })
-  }, [filter, patients, range, samples, search])
-
   const patientByLabid = useMemo(() => new Map(patients.map((p) => [p.labid, p])), [patients])
 
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const start = new Date(); start.setHours(0, 0, 0, 0)
+    if (range === 'week') start.setDate(start.getDate() - 7)
+    return samples
+      .filter((s) => s.status === filter)
+      .filter((s) => new Date(s.collected_at).getTime() >= start.getTime())
+      .filter((s) => {
+        if (!q) return true
+        const name = patientByLabid.get(s.labid)?.full_name?.toLowerCase() ?? ''
+        return s.sample_id.toLowerCase().includes(q) || s.labid.toLowerCase().includes(q) || name.includes(q)
+      })
+  }, [filter, patientByLabid, range, samples, search])
+
   return (
-    <section>
-      <header className="list-header">
+    <div className="listpage">
+      <header className="listpage__head">
         <div>
-          <h2>Sample Tracking</h2>
-          <p className="list-subtitle">{filtered.length} samples in view</p>
+          <h1 className="listpage__title">Sample tracking</h1>
+          <p className="listpage__sub">{filtered.length} samples in view</p>
         </div>
-        <div className="list-actions">
-          <div className="search-field">
-            <Search className="header-icon" />
-            <Input className="search-input" value={search} placeholder="Search Sample ID or patient" onChange={(e) => setSearch(e.target.value)} />
+        <div className="listpage__actions">
+          <div className="listpage__search">
+            <Search size={16} />
+            <input value={search} placeholder="Search sample ID or patient" onChange={(e) => setSearch(e.target.value)} />
           </div>
-          <Button variant="primary" onClick={() => navigate('/app/samples/register')}>
-            Register sample
-          </Button>
+          <Button variant="primary" onClick={() => navigate('/app/samples/register')}>Register sample</Button>
         </div>
       </header>
 
-      <div className="dashboard-row">
-        {PIPELINE.map((stage) => {
-          const isActive = filter === stage.status
-          const isAwaiting = stage.status === 'awaiting_approval'
-          const cardClass = `stat-card${isActive && !isAwaiting ? ' stat-card--active' : ''}${isAwaiting ? ' stat-card--warning' : ''}`
-          return (
-            <button
-              key={stage.status}
-              type="button"
-              className={cardClass}
-              onClick={() => setFilter(stage.status)}
-              style={{ textAlign: 'left' }}
-            >
-              <div className="stat-card__label">{stage.label}</div>
-              <div className="stat-card__value">{counts[stage.status]}</div>
-            </button>
-          )
-        })}
+      <div className="pipe-row">
+        {PIPELINE.map((stage) => (
+          <button
+            key={stage.status}
+            type="button"
+            className={`pipe-card${filter === stage.status ? ' is-active' : ''}${stage.warn ? ' is-warn' : ''}`}
+            onClick={() => setFilter(stage.status)}
+          >
+            <div className="pipe-card__label">{stage.label}</div>
+            <div className="pipe-card__value">{counts[stage.status]}</div>
+          </button>
+        ))}
       </div>
 
-      <div className="filter-row" style={{ marginTop: 12 }}>
-        <button type="button" className={`filter-chip${range === 'today' ? ' filter-chip--active' : ''}`} onClick={() => setRange('today')}>
-          Today
-        </button>
-        <button type="button" className={`filter-chip${range === 'week' ? ' filter-chip--active' : ''}`} onClick={() => setRange('week')}>
-          This Week
-        </button>
+      <div className="listpage__range">
+        <button className={`chip-tab${range === 'today' ? ' is-active' : ''}`} onClick={() => setRange('today')}>Today</button>
+        <button className={`chip-tab${range === 'week' ? ' is-active' : ''}`} onClick={() => setRange('week')}>This week</button>
       </div>
 
-      {filtered.length === 0 ? (
-        <EmptyState icon="-" headline={`No samples ${filter.replace('_', ' ')}`} description="Samples will appear here after registration." />
-      ) : (
-        <Table>
-          <TableHead>
-            <tr>
-              <th>Sample ID</th>
-              <th>Patient</th>
-              <th>Tests</th>
-              <th>Status</th>
-              <th>Referring Doctor</th>
-              <th>Elapsed</th>
-              <th>Actions</th>
-            </tr>
-          </TableHead>
-          <TableBody>
-            {filtered.map((sample) => {
-              const patient = patientByLabid.get(sample.labid)
-              const testsLabel =
-                sample.tests_ordered.length > 3
-                  ? `${sample.tests_ordered.slice(0, 2).join(', ')} +${sample.tests_ordered.length - 2} more`
-                  : sample.tests_ordered.join(', ')
-              return (
-                <TableRow
-                  key={sample.id}
-                  className={sample.is_stat ? 'stat-row' : ''}
-                  onClick={() => navigate(`/app/samples/${sample.id}`)}
-                >
-                  <TableCell className="table-id">#{sample.sample_id}</TableCell>
-                  <TableCell>{patient ? `${patient.full_name} (${patient.labid})` : sample.labid}</TableCell>
-                  <TableCell>{testsLabel}</TableCell>
-                  <TableCell>
-                    <Badge status={sample.status === 'awaiting_approval' ? 'AWAITING APPROVAL' : (sample.status.toUpperCase() as 'RECEIVED' | 'PROCESSING' | 'READY' | 'DELIVERED')}>
-                      {sample.status.replace('_', ' ')}
-                    </Badge>
-                    {sample.is_stat ? <span style={{ marginLeft: 8 }}><Badge status="STAT" /></span> : null}
-                  </TableCell>
-                  <TableCell>{sample.referring_doctor ?? '-'}</TableCell>
-                  <TableCell>{formatTimeAgo(sample.collected_at)}</TableCell>
-                  <TableCell className="table-actions">
-                    <Button variant="secondary" size="sm" onClick={() => navigate(`/app/samples/${sample.id}`)}>
-                      View
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
-      )}
-    </section>
+      <section className="owner-panel">
+        <div className="owner-panel__head">
+          <h3>{LABEL[filter]} samples</h3>
+          <span className="owner-panel__meta">{range === 'today' ? 'Today' : 'This week'}</span>
+        </div>
+        {filtered.length === 0 ? (
+          <EmptyState icon="-" headline={`No ${LABEL[filter].toLowerCase()} samples`} description="Samples appear here after registration." />
+        ) : (
+          <div className="owner-table-wrap">
+            <table className="owner-table">
+              <thead>
+                <tr>
+                  <th>Sample ID</th>
+                  <th>Patient</th>
+                  <th>Tests</th>
+                  <th>Status</th>
+                  <th>Doctor</th>
+                  <th className="right">Elapsed</th>
+                  <th className="right"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((s) => {
+                  const patient = patientByLabid.get(s.labid)
+                  const tests = s.tests_ordered.length > 3
+                    ? `${s.tests_ordered.slice(0, 2).join(', ')} +${s.tests_ordered.length - 2}`
+                    : s.tests_ordered.join(', ')
+                  return (
+                    <tr key={s.id} className={s.is_stat ? 'sci-row--stat' : ''} style={{ cursor: 'pointer' }} onClick={() => navigate(`/app/samples/${s.id}`)}>
+                      <td><span className="table-id">#{s.sample_id}</span></td>
+                      <td className="owner-table__strong">
+                        {patient?.full_name ?? s.labid}
+                        {s.is_stat ? <span className="sci-stat-tag">STAT</span> : null}
+                      </td>
+                      <td className="owner-table__muted">{tests}</td>
+                      <td><span className={`chip ${CHIP[s.status] ?? 'c-slate'}`}>{LABEL[s.status] ?? s.status}</span></td>
+                      <td className="owner-table__muted">{s.referring_doctor ?? '—'}</td>
+                      <td className="right owner-table__muted">{formatTimeAgo(s.collected_at)}</td>
+                      <td className="right">
+                        <button className="btn btn--sm btn--secondary" onClick={(e) => { e.stopPropagation(); navigate(`/app/samples/${s.id}`) }}>View</button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </div>
   )
 }
-
