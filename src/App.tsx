@@ -6,6 +6,7 @@ import { AuthProvider, useAuthContext } from '@/context/AuthContext'
 
 // ── Eagerly loaded (tiny, always needed on first paint) ──────────────────────
 import { LoginPage } from '@/pages/login/LoginPage'
+import { LandingPage } from '@/pages/landing/LandingPage'
 
 // ── Lazily loaded pages (split by route) ─────────────────────────────────────
 const DashboardPage        = lazy(() => import('@/pages/dashboard/DashboardPage').then((m) => ({ default: m.DashboardPage })))
@@ -106,7 +107,7 @@ export function App() {
               />
             </Route>
 
-            <Route path="/" element={<Navigate to="/app/dashboard" replace />} />
+            <Route path="/" element={<LandingPage />} />
           </Routes>
         </BrowserRouter>
       </ToastProvider>
