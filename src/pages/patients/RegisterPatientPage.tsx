@@ -7,7 +7,6 @@ import { useAuthContext } from '@/context/AuthContext'
 import { findPotentialDuplicate, type DuplicateCandidate } from '@/lib/patientSearch'
 import { generateLocalLabid } from '@/lib/labid'
 import { offlineSuccessMessage } from '@/lib/offlineWrite'
-import { supabase } from '@/lib/supabase'
 import { friendlyError } from '@/lib/supabaseQuery'
 
 interface FormValues {
@@ -38,17 +37,11 @@ export function RegisterPatientPage() {
   const values = watch()
 
   async function createPatientRecord(data: FormValues) {
-    let labid: string
-    if (navigator.onLine) {
-      const { data: labidResponse, error: labidError } = await supabase.rpc('generate_labid')
-      if (labidError) {
-        labid = await generateLocalLabid()
-      } else {
-        labid = (labidResponse as string) ?? (await generateLocalLabid())
-      }
-    } else {
-      labid = await generateLocalLabid()
-    }
+    // Always allocated locally: registration is the one flow that must complete
+    // with zero internet, so it cannot depend on a round-trip. The unique index
+    // on patients.labid is the backstop if two devices ever allocate the same
+    // number while both offline.
+    const labid = await generateLocalLabid()
 
     const now = new Date().toISOString()
     const patientId = crypto.randomUUID()

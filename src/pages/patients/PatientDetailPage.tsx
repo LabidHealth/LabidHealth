@@ -1,23 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { invoiceRepo, patientRepo, resultRepo, visitRepo } from '@/lib/repositories'
+import { auditRepo, invoiceRepo, patientRepo, resultRepo, visitRepo } from '@/lib/repositories'
 import QRCode from 'qrcode'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Avatar, Badge, Button, EmptyState } from '@/components/ui'
 import { useAuthContext } from '@/context/AuthContext'
 import { formatDate, formatDateTime, formatNaira, formatPhone, formatTimeAgo } from '@/lib/formatters'
 import { openAndPrintPdfBlob } from '@/lib/printPdf'
-import { supabase } from '@/lib/supabase'
 import type { Invoice, Patient, PatientVisit, Result } from '@/types'
 
 interface ConsentHistoryEntry {
   id: string
-  action: 'INSERT' | 'UPDATE'
+  action: string
   created_at: string
-  user_role: string | null
-  new_record: {
-    consent: boolean
-    consent_date: string | null
-  } | null
+  consent: boolean
 }
 
 export function PatientDetailPage() {
@@ -52,20 +47,20 @@ export function PatientDetailPage() {
       setResults(patientResults)
       setInvoices(patientInvoices)
 
-      // Load consent history from audit_log
+      // Consent history comes from the local audit trail, which is where
+      // writeRecord records it — this device's history of this patient.
       if (role === 'owner') {
-        try {
-          const { data: consentLogs } = await supabase
-            .from('audit_log')
-            .select('*')
-            .eq('table_name', 'patients')
-            .eq('record_id', currentPatient.id)
-            .in('action', ['INSERT', 'UPDATE'])
-            .order('created_at', { ascending: true })
-          setConsentHistory((consentLogs as ConsentHistoryEntry[]) || [])
-        } catch {
-          // Ignore audit log errors
-        }
+        const entries = await auditRepo.listByRecord('patients', currentPatient.id)
+        setConsentHistory(
+          entries
+            .filter((entry) => entry.action === 'INSERT' || entry.action === 'UPDATE')
+            .map((entry) => ({
+              id: entry.id,
+              action: entry.action,
+              created_at: entry.created_at,
+              consent: Boolean((entry.new_value as { consent?: boolean } | null)?.consent)
+            }))
+        )
       }
     }
 
@@ -286,11 +281,11 @@ export function PatientDetailPage() {
                     <div>
                       <strong>{formatDateTime(entry.created_at)}</strong>
                       <span style={{ fontSize: 12, color: '#4A4A4A' }}>
-                        {entry.action === 'INSERT' ? 'Initial consent' : 'Consent updated'} by {entry.user_role || 'Unknown'}
+                        {entry.action === 'INSERT' ? 'Initial consent' : 'Consent updated'}
                       </span>
                     </div>
-                    <Badge status={entry.new_record?.consent ? 'SUCCESS' : 'WARNING'}>
-                      {entry.new_record?.consent ? 'Granted' : 'Revoked'}
+                    <Badge status={entry.consent ? 'SUCCESS' : 'WARNING'}>
+                      {entry.consent ? 'Granted' : 'Revoked'}
                     </Badge>
                   </div>
                 ))}

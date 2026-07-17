@@ -8,7 +8,7 @@ import { useAuthContext } from '@/context/AuthContext'
 import { formatTimeAgo, formatDateTime } from '@/lib/formatters'
 import { offlineSuccessMessage } from '@/lib/offlineWrite'
 import { friendlyError } from '@/lib/supabaseQuery'
-import { supabase } from '@/lib/supabase'
+import { pull } from '@/lib/pull'
 import type { Patient, Result, ResultAmendment } from '@/types'
 
 type Tab = 'pending' | 'all'
@@ -20,13 +20,7 @@ interface ResultRow {
 }
 
 async function syncResultsFromSupabase() {
-  if (!navigator.onLine) return
-  const [{ data: results }, { data: patients }] = await Promise.all([
-    supabase.from('results').select('*').order('created_at', { ascending: false }).limit(200),
-    supabase.from('patients').select('*')
-  ])
-  if (results) await resultRepo.bulkPut(results)
-  if (patients) await patientRepo.bulkPut(patients)
+  await Promise.all([pull.results(), pull.patients()])
 }
 
 export function ResultListPage() {

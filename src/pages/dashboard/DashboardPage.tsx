@@ -10,7 +10,7 @@ import { Button, EmptyState, StatCard } from '@/components/ui'
 import { useAuthContext } from '@/context/AuthContext'
 import { formatNaira, formatTimeAgo } from '@/lib/formatters'
 import { resendNotification } from '@/lib/notifications'
-import { supabase } from '@/lib/supabase'
+import { pullDashboard } from '@/lib/pull'
 import type { Invoice, LabStaff, Notification, Patient, PatientVisit, Result, Sample } from '@/types'
 import { OwnerDashboard } from './OwnerDashboard'
 import { ScientistDashboard } from './ScientistDashboard'
@@ -101,26 +101,6 @@ function sod(offset = 0) {
 
 function eod(offset = 0) {
   const d = sod(offset); d.setHours(23, 59, 59, 999); return d
-}
-
-async function syncDashboardTables() {
-  if (!navigator.onLine) return
-  const [samples, results, invoices, notifications, patients, visits, staff] = await Promise.allSettled([
-    supabase.from('samples').select('*'),
-    supabase.from('results').select('*'),
-    supabase.from('invoices').select('*'),
-    supabase.from('notifications').select('*'),
-    supabase.from('patients').select('*'),
-    supabase.from('patient_visits').select('*'),
-    supabase.from('lab_staff').select('*')
-  ])
-  if (samples.status === 'fulfilled' && samples.value.data) await sampleRepo.bulkPut(samples.value.data)
-  if (results.status === 'fulfilled' && results.value.data) await resultRepo.bulkPut(results.value.data)
-  if (invoices.status === 'fulfilled' && invoices.value.data) await invoiceRepo.bulkPut(invoices.value.data)
-  if (notifications.status === 'fulfilled' && notifications.value.data) await notificationRepo.bulkPut(notifications.value.data)
-  if (patients.status === 'fulfilled' && patients.value.data) await patientRepo.bulkPut(patients.value.data)
-  if (visits.status === 'fulfilled' && visits.value.data) await visitRepo.bulkPut(visits.value.data)
-  if (staff.status === 'fulfilled' && staff.value.data) await staffRepo.bulkPut(staff.value.data)
 }
 
 function buildMetrics(
@@ -254,7 +234,7 @@ export function DashboardPage() {
         setMetrics(buildMetrics(samples, results, invoices, notifications, patients, visits, staff))
       }
       await refresh()
-      if (navigator.onLine) { await syncDashboardTables(); await refresh() }
+      if (navigator.onLine) { await pullDashboard(); await refresh() }
     }
     void load()
     return () => { mounted = false }

@@ -6,6 +6,7 @@ import { useAuthContext } from '@/context/AuthContext'
 import { compressImage } from '@/lib/compressImage'
 import { offlineSuccessMessage } from '@/lib/offlineWrite'
 import { friendlyError } from '@/lib/supabaseQuery'
+import { pull } from '@/lib/pull'
 import { supabase } from '@/lib/supabase'
 import type { Lab, LabStaff, UserRole } from '@/types'
 
@@ -82,13 +83,7 @@ export function SettingsPage() {
 
     if (!navigator.onLine) return
 
-    const [{ data: labData }, { data: staffData }] = await Promise.all([
-      supabase.from('labs').select('*').limit(1),
-      supabase.from('lab_staff').select('*').eq('is_active', true as never)
-    ])
-
-    if (labData) await labRepo.bulkPut(labData)
-    if (staffData) await staffRepo.bulkPut(staffData)
+    await Promise.all([pull.labs(), pull.staff()])
 
     const [freshLabs, freshStaff] = await Promise.all([labRepo.all(), staffRepo.all()])
     const freshLab = freshLabs[0] ?? null

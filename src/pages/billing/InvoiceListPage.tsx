@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { EmptyState } from '@/components/ui'
 import { useAuthContext } from '@/context/AuthContext'
 import { formatNaira, formatDateTime } from '@/lib/formatters'
-import { supabase } from '@/lib/supabase'
+import { pull } from '@/lib/pull'
 import type { Invoice, Patient } from '@/types'
 
 type TabFilter = 'all' | 'unpaid' | 'partial' | 'paid'
@@ -15,17 +15,7 @@ const CHIP: Record<Invoice['status'], string> = {
 }
 
 async function syncBillingFromSupabase() {
-  if (!navigator.onLine) return
-  try {
-    const [{ data: invoices }, { data: patients }] = await Promise.all([
-      supabase.from('invoices').select('*').order('created_at', { ascending: false }).limit(200),
-      supabase.from('patients').select('*')
-    ])
-    if (invoices) await invoiceRepo.bulkPut(invoices)
-    if (patients) await patientRepo.bulkPut(patients)
-  } catch {
-    // No backend configured (offline dev) — local data only.
-  }
+  await Promise.all([pull.invoices(), pull.patients()])
 }
 
 export function InvoiceListPage() {

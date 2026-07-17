@@ -7,7 +7,7 @@ import { Avatar, Button, EmptyState, Input, Table, TableBody, TableCell, TableHe
 import { formatPhone, formatTimeAgo } from '@/lib/formatters'
 import { openAndPrintPdfBlob } from '@/lib/printPdf'
 import { buildPatientSearchValue, getNameSimilarity } from '@/lib/patientSearch'
-import { supabase } from '@/lib/supabase'
+import { pull } from '@/lib/pull'
 import type { Patient, PatientVisit } from '@/types'
 
 type Filter = 'today' | 'week' | 'all'
@@ -20,15 +20,7 @@ interface PatientRow {
 }
 
 async function syncPatientsFromSupabase() {
-  if (!navigator.onLine) return
-
-  const [{ data: patients }, { data: visits }] = await Promise.all([
-    supabase.from('patients').select('*'),
-    supabase.from('patient_visits').select('*')
-  ])
-
-  if (patients) await patientRepo.bulkPut(patients)
-  if (visits) await visitRepo.bulkPut(visits)
+  await Promise.all([pull.patients(), pull.visits()])
 }
 
 function buildRows(patients: Patient[], visits: PatientVisit[]) {

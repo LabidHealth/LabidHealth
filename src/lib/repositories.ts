@@ -62,7 +62,9 @@ export const resultRepo = {
   ...crud<Result>('results', () => db.results),
   listByLabid: (labid: string) => db.results.where('labid').equals(labid).toArray(),
   listByLabidRecent: (labid: string) => db.results.where('labid').equals(labid).reverse().sortBy('created_at'),
-  listRecent: () => db.results.orderBy('created_at').reverse().toArray()
+  // created_at is not part of the results index, so this sorts in memory —
+  // matching listByLabidRecent above. Per-lab result volume is bounded.
+  listRecent: async () => (await db.results.toArray()).sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
 }
 
 export const amendmentRepo = {
@@ -99,4 +101,13 @@ export const priceRepo = {
 export const notificationRepo = {
   ...crud<Notification>('notifications', () => db.notifications),
   listByResult: (resultId: string) => db.notifications.where('result_id').equals(resultId).toArray()
+}
+
+/**
+ * Read-only by design: the audit trail is append-only and is written solely by
+ * writeRecord (via logAuditEvent), never by a screen.
+ */
+export const auditRepo = {
+  listByRecord: (table: string, recordId: string) =>
+    db.audit_log.filter((entry) => entry.table_name === table && entry.record_id === recordId).sortBy('created_at')
 }
