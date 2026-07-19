@@ -2,6 +2,8 @@ import type { Table } from 'dexie'
 import { db } from './db'
 import { writeRecord } from './writeRecord'
 import type {
+  CatalogParameter,
+  CatalogTest,
   Invoice,
   Lab,
   LabStaff,
@@ -96,6 +98,14 @@ export const staffRepo = {
 export const priceRepo = {
   ...crud<PriceListItem>('price_list', () => db.price_list),
   listByLab: (labId: string) => db.price_list.where('lab_id').equals(labId).toArray()
+}
+
+export const catalogTestRepo = {
+  ...crud<CatalogTest>('catalog_tests', () => db.catalog_tests)
+}
+
+export const catalogParamRepo = {
+  ...crud<CatalogParameter>('catalog_parameters', () => db.catalog_parameters)
 }
 
 export const notificationRepo = {

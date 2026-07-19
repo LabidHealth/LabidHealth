@@ -38,6 +38,11 @@ function backoffMs(attempts: number): number {
 
 class SyncEngine {
   private isSyncing = false
+  // Set when a push() is requested while one is already running (e.g. a second
+  // record is written mid-sync). Without it, that trigger is dropped and the new
+  // record waits for the 30s interval — which is why a visit written right after
+  // its patient would not sync promptly. The re-run drains it immediately.
+  private rerunRequested = false
   private listeners = new Set<Listener>()
   private state: SyncState = navigator.onLine ? 'pending' : 'offline'
   private retryTimer: ReturnType<typeof setTimeout> | null = null
@@ -82,7 +87,12 @@ class SyncEngine {
   }
 
   async push() {
-    if (this.isSyncing) return
+    // A write arrived while a sync was in flight — remember to drain again once
+    // it finishes, rather than dropping this trigger.
+    if (this.isSyncing) {
+      this.rerunRequested = true
+      return
+    }
     // Offline dev mode: no backend to push to; everything lives locally.
     if (!hasBackend) {
       this.updateState('synced')
@@ -137,15 +147,41 @@ class SyncEngine {
       else this.updateState('pending')
     } finally {
       this.isSyncing = false
+      // Drain anything queued while we were syncing (e.g. the visit written
+      // right after its patient) instead of waiting for the next interval.
+      if (this.rerunRequested) {
+        this.rerunRequested = false
+        void this.push()
+      }
     }
   }
 
   private async processItem(item: SyncQueueItem) {
     const { table, operation, payload } = item
-    if (operation === 'INSERT' || operation === 'UPDATE') {
-      // Idempotent upsert on the client-generated UUID id: a retry after a
-      // partial success can never create a duplicate row. Append-only tables
-      // (payments, results, sample_events, audit_log) simply re-apply the row.
+    if (operation === 'INSERT') {
+      // Plain INSERT, deliberately NOT an upsert. Postgres makes INSERT ... ON
+      // CONFLICT (in any form) also satisfy the SELECT policy so it can read the
+      // row for conflict handling — but a just-registered patient is not yet
+      // SELECT-visible under the visit-scoped policy (their first visit has not
+      // synced), so an upsert would reject every registration. A plain insert
+      // only checks the INSERT policy.
+      //
+      // Idempotency is preserved by the client-generated UUID id: replaying an
+      // insert whose response was lost hits the PRIMARY KEY and is treated as
+      // already-synced (success). A duplicate on any OTHER unique key — a LABID,
+      // sample_id or invoice_id minted twice while two devices were offline — is
+      // a real collision and is rethrown, so it parks as stuck rather than being
+      // silently dropped.
+      const res = await withTimeout(supabase.from(table as never).insert(payload as never))
+      const error = (res as { error: { code?: string; message?: string; details?: string } | null }).error
+      if (error) {
+        const detail = `${error.message ?? ''} ${error.details ?? ''}`
+        const isPrimaryKeyReplay = error.code === '23505' && detail.includes(`${table}_pkey`)
+        if (!isPrimaryKeyReplay) throw error
+      }
+    } else if (operation === 'UPDATE') {
+      // Real update: apply it. onConflict:id keeps it idempotent, and upsert
+      // semantics recover if the original INSERT op has not landed yet.
       const res = await withTimeout(supabase.from(table as never).upsert(payload as never, { onConflict: 'id' }))
       const { error } = res as { error: unknown }
       if (error) throw error

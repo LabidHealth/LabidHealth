@@ -1,5 +1,7 @@
 import { hasBackend, supabase } from './supabase'
 import {
+  catalogParamRepo,
+  catalogTestRepo,
   invoiceRepo,
   labRepo,
   notificationRepo,
@@ -9,7 +11,18 @@ import {
   staffRepo,
   visitRepo
 } from './repositories'
-import type { Invoice, Lab, LabStaff, Notification, Patient, PatientVisit, Result, Sample } from '@/types'
+import type {
+  CatalogParameter,
+  CatalogTest,
+  Invoice,
+  Lab,
+  LabStaff,
+  Notification,
+  Patient,
+  PatientVisit,
+  Result,
+  Sample
+} from '@/types'
 
 /**
  * The single server → local-cache boundary. Writes go out through
@@ -77,7 +90,19 @@ export const pull = {
   labs: () => cache<Lab>('labs', supabase.from('labs').select('*').limit(1), (rows) => labRepo.bulkPut(rows)),
 
   // Mirrors every staff row, active or not; screens filter on is_active locally.
-  staff: () => cache<LabStaff>('lab_staff', supabase.from('lab_staff').select('*'), (rows) => staffRepo.bulkPut(rows))
+  staff: () => cache<LabStaff>('lab_staff', supabase.from('lab_staff').select('*'), (rows) => staffRepo.bulkPut(rows)),
+
+  // The test catalog + reference ranges. In dev mode this is seeded locally; in
+  // backend mode it only exists on the server, so result entry/approval/detail
+  // depend on this pull to render parameters and reference ranges.
+  catalog: async () => {
+    await cache<CatalogTest>('catalog_tests', supabase.from('catalog_tests').select('*'), (rows) =>
+      catalogTestRepo.bulkPut(rows)
+    )
+    await cache<CatalogParameter>('catalog_parameters', supabase.from('catalog_parameters').select('*'), (rows) =>
+      catalogParamRepo.bulkPut(rows)
+    )
+  }
 }
 
 /** Warm every table the dashboard aggregates over. */

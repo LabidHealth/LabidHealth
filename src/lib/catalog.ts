@@ -118,6 +118,12 @@ export async function seedCatalog(labId: string): Promise<void> {
 
 /** Find a catalog test by exact name (as stored on a result) or by code. */
 export async function getCatalogTest(nameOrCode: string): Promise<{ test: CatalogTest; params: CatalogParameter[] } | null> {
+  // In backend mode the catalog lives only on the server; pull it once on first
+  // use so result screens have parameter definitions and reference ranges.
+  if ((await db.catalog_tests.count()) === 0) {
+    const { pull } = await import('./pull')
+    await pull.catalog()
+  }
   const test =
     (await db.catalog_tests.where('name').equals(nameOrCode).first()) ??
     (await db.catalog_tests.where('code').equals(nameOrCode).first())

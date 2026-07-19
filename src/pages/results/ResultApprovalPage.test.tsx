@@ -11,7 +11,8 @@ const mocks = vi.hoisted(() => ({
   sampleFirst: vi.fn(),
   labGet: vi.fn(),
   catalogTestFirst: vi.fn(),
-  catalogParamsToArray: vi.fn()
+  catalogParamsToArray: vi.fn(),
+  catalogTestCount: vi.fn()
 }))
 
 vi.mock('react-router-dom', () => ({
@@ -48,6 +49,7 @@ vi.mock('@/lib/db', () => ({
     // The page resolves the test catalog to render reference ranges; without
     // these the lookup rejects and Vitest reports an unhandled error.
     catalog_tests: {
+      count: mocks.catalogTestCount,
       where: () => ({
         equals: () => ({
           first: mocks.catalogTestFirst
@@ -98,6 +100,7 @@ vi.mock('@/components/ui', () => ({
 describe('ResultApprovalPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.catalogTestCount.mockResolvedValue(1) // non-empty: skip the network pull-through
     mocks.catalogTestFirst.mockResolvedValue(undefined)
     mocks.catalogParamsToArray.mockResolvedValue([])
     mocks.resultGet.mockResolvedValue({
