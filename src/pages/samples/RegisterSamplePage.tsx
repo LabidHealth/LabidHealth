@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react'
-import { invoiceRepo, patientRepo, priceRepo, sampleEventRepo, sampleRepo } from '@/lib/repositories'
+import { invoiceRepo, patientRepo, priceRepo, resultRepo, sampleEventRepo, sampleRepo } from '@/lib/repositories'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Button, EmptyState, Input, useToast } from '@/components/ui'
 import { useAuthContext } from '@/context/AuthContext'
 import { offlineSuccessMessage } from '@/lib/offlineWrite'
 import { friendlyError, supabaseQuery } from '@/lib/supabaseQuery'
-import type { InvoiceLineItem, Patient, PriceListItem, Sample, SampleEvent } from '@/types'
+import type { InvoiceLineItem, Patient, PriceListItem, Result, Sample, SampleEvent } from '@/types'
 
 type TestCategory = {
   name: string
@@ -201,6 +201,33 @@ export function RegisterSamplePage() {
         created_at: now,
         updated_at: now
       })
+
+      // One draft result per ordered test, so each is ready for the scientist to
+      // enter. test_type carries the ordered code; getCatalogTest resolves it to
+      // the catalog test (by name, then code) to drive the entry form.
+      for (const code of tests) {
+        const result: Result = {
+          id: crypto.randomUUID(),
+          sample_id: sample.sample_id,
+          labid: patient.labid,
+          lab_id: labId,
+          test_type: code,
+          parameters: {},
+          comments: null,
+          status: 'draft',
+          entered_by: null,
+          approved_by: null,
+          approved_at: null,
+          pdf_url: null,
+          pdf_generated_at: null,
+          critical_acknowledged: false,
+          critical_acknowledged_by: null,
+          critical_acknowledged_at: null,
+          created_at: now,
+          updated_at: now
+        }
+        await resultRepo.create(result)
+      }
 
       toast.push(offlineSuccessMessage(`Sample registered - #${sample.sample_id}`))
       navigate(`/app/samples/${sample.id}`)
