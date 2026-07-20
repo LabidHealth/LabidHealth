@@ -1,0 +1,22 @@
+{
+  "name": "labid-demo-video",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Labid Health product demo video (Remotion)",
+  "scripts": {
+    "studio": "remotion studio",
+    "render": "remotion render LabidDemo out/labid-demo.mp4 --concurrency 4",
+    "still": "remotion still LabidDemo out/frame.png"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.404",
+    "remotion": "4.0.404",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "typescript": "^5.6.3"
+  }
+}
