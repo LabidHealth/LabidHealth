@@ -9,6 +9,17 @@ const ABBR: Record<string, string> = {
 }
 const abbr = (k: string) => ABBR[k] ?? k.replace(/_/g, ' ').slice(0, 4).toUpperCase()
 
+const AV_CLASSES = ['avatar--a', 'avatar--b', 'avatar--c', 'avatar--d', 'avatar--e']
+const initials = (name: string) => {
+  const p = name.trim().split(/\s+/)
+  return ((p[0]?.[0] ?? '') + (p[1]?.[0] ?? '')).toUpperCase() || '?'
+}
+const avatarClass = (seed: string) => {
+  let h = 0
+  for (const c of seed) h = (h + c.charCodeAt(0)) % AV_CLASSES.length
+  return AV_CLASSES[h]
+}
+
 const QUEUE_STATUSES = new Set(['received', 'processing', 'awaiting_approval'])
 
 type Row = {
@@ -174,7 +185,12 @@ export function ScientistDashboard() {
                   <tr key={r.sampleRowId} className={r.isStat ? 'sci-row--stat' : ''}>
                     <td><span className="table-id">#{r.sampleId}</span></td>
                     <td className="owner-table__strong">{r.test}{r.isStat ? <span className="sci-stat-tag">STAT</span> : null}</td>
-                    <td>{r.patient}</td>
+                    <td>
+                      <span className="patient-cell">
+                        <span className={`avatar ${avatarClass(r.patient)}`}>{initials(r.patient)}</span>
+                        <span className="owner-table__strong">{r.patient}</span>
+                      </span>
+                    </td>
                     <td><span className={`chip ${STATUS_TONE[r.status] ?? 'c-slate'}`}>{STATUS_LABEL[r.status]}</span></td>
                     <td>
                       <span className="sci-chip-row">

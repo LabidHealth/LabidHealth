@@ -1,38 +1,63 @@
 import React, { useEffect, useState } from 'react'
 import { invoiceRepo, patientRepo, priceRepo, sampleRepo } from '@/lib/repositories'
 import { useNavigate } from 'react-router-dom'
-import { UserPlus } from 'lucide-react'
-import type { Invoice, InvoiceStatus, Patient, PriceListItem, Sample } from '@/types'
+import { Banknote, Search, UserPlus } from 'lucide-react'
+import { formatNaira } from '@/lib/formatters'
+import type { Invoice, Patient, PriceListItem, Sample } from '@/types'
+
+// Throughput surface on the lab PC: three big actions, then the live queue.
+// State reads from the chips; the per-row action follows the row's state.
+
+const AV_CLASSES = ['avatar--a', 'avatar--b', 'avatar--c', 'avatar--d', 'avatar--e']
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/)
+  return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || '?'
+}
+function avatarClass(seed: string): string {
+  let h = 0
+  for (const c of seed) h = (h + c.charCodeAt(0)) % AV_CLASSES.length
+  return AV_CLASSES[h]
+}
+// +234 803 •• 4417 — country code, first three, then the last four.
+function maskPhone(raw: string | null | undefined): string {
+  let d = (raw ?? '').replace(/\D/g, '')
+  if (!d) return '—'
+  if (d.startsWith('0')) d = `234${d.slice(1)}`
+  else if (!d.startsWith('234') && d.length === 10) d = `234${d}`
+  const nat = d.startsWith('234') ? d.slice(3) : d
+  if (nat.length < 7) return `+${d}`
+  return `+234 ${nat.slice(0, 3)} •• ${nat.slice(-4)}`
+}
 
 const startOfDay = () => {
   const d = new Date()
   d.setHours(0, 0, 0, 0)
   return d.getTime()
 }
-const timeLabel = (iso: string) =>
-  new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true })
 
-const PAY_LABEL: Record<InvoiceStatus, string> = {
-  paid: 'Paid', partial: 'Partial', unpaid: 'Unpaid', refunded: 'Refunded', void: 'Void'
-}
-const PAY_TONE: Record<InvoiceStatus, string> = {
-  paid: 'c-green', partial: 'c-amber', unpaid: 'c-red', refunded: 'c-slate', void: 'c-slate'
+// Sample status → queue chip (design-tokens status→colour map).
+const STATUS: Record<Sample['status'], { label: string; tone: string }> = {
+  received: { label: 'Sample collected', tone: 'c-sky' },
+  processing: { label: 'In progress', tone: 'c-amber' },
+  awaiting_approval: { label: 'In progress', tone: 'c-amber' },
+  ready: { label: 'Ready', tone: 'c-blue' },
+  delivered: { label: 'Sent', tone: 'c-green' },
+  rejected: { label: 'Rejected', tone: 'c-red' }
 }
 
-type Visit = {
+type Row = {
   id: string
-  patient: string
   labid: string
+  patient: string
+  phone: string | null
   tests: string
-  arrival: string
-  payStatus: InvoiceStatus
-  owing: boolean
+  status: Sample['status']
+  balance: number
 }
 interface FdData {
-  todayPatients: number
-  pendingResults: number
-  awaitingPayment: number
-  visits: Visit[]
+  count: number
+  rows: Row[]
 }
 
 async function computeFdData(): Promise<FdData> {
@@ -42,33 +67,28 @@ async function computeFdData(): Promise<FdData> {
     patientRepo.all() as Promise<Patient[]>,
     priceRepo.all() as Promise<PriceListItem[]>
   ])
-  const nameByLabid = new Map(patients.map((p) => [p.labid, p.full_name]))
+  const patientByLabid = new Map(patients.map((p) => [p.labid, p]))
   const testByCode = new Map(prices.map((p) => [p.test_code, p.test_name]))
   const invoiceBySample = new Map(invoices.filter((i) => i.sample_id).map((i) => [i.sample_id as string, i]))
 
   const sod = startOfDay()
-  const todayPatients = samples.filter((s) => new Date(s.collected_at).getTime() >= sod).length
-  const pendingResults = samples.filter((s) => s.status !== 'delivered').length
-  const awaitingPayment = invoices.filter((i) => i.outstanding > 0).length
-
-  const visits: Visit[] = [...samples]
+  const today = samples.filter((s) => new Date(s.collected_at).getTime() >= sod)
+  const rows: Row[] = [...today]
     .sort((a, b) => new Date(b.collected_at).getTime() - new Date(a.collected_at).getTime())
-    .slice(0, 8)
     .map((s) => {
       const inv = invoiceBySample.get(s.sample_id)
-      const status: InvoiceStatus = inv?.status ?? 'unpaid'
       return {
         id: s.id,
-        patient: nameByLabid.get(s.labid) ?? s.labid,
         labid: s.labid,
+        patient: patientByLabid.get(s.labid)?.full_name ?? s.labid,
+        phone: patientByLabid.get(s.labid)?.phone ?? null,
         tests: s.tests_ordered.map((c) => testByCode.get(c) ?? c).join(', '),
-        arrival: timeLabel(s.collected_at),
-        payStatus: status,
-        owing: (inv?.outstanding ?? 0) > 0
+        status: s.status,
+        balance: inv?.outstanding ?? 0
       }
     })
 
-  return { todayPatients, pendingResults, awaitingPayment, visits }
+  return { count: today.length, rows }
 }
 
 export function FrontDeskDashboard() {
@@ -94,55 +114,73 @@ export function FrontDeskDashboard() {
           <h1 className="sci__title">Front desk</h1>
           <p className="sci__subtitle">Register patients and track diagnostic progress.</p>
         </div>
-        <button className="btn btn--primary" onClick={() => navigate('/app/patients/register')}>
-          <UserPlus size={16} /> New patient registration
-        </button>
       </header>
 
-      <div className="fd__stats">
-        <div className="sci-stat sci-stat--blue"><span className="sci-stat__label">Patients today</span><span className="sci-stat__value">{data.todayPatients}</span></div>
-        <div className="sci-stat"><span className="sci-stat__label">Pending results</span><span className="sci-stat__value">{data.pendingResults}</span></div>
-        <div className="sci-stat"><span className="sci-stat__label">Awaiting payment</span><span className="sci-stat__value">{data.awaitingPayment}</span></div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <button className="btn btn--primary" onClick={() => navigate('/app/patients/register')}>
+          <UserPlus size={16} /> Register patient
+        </button>
+        <button className="btn btn--secondary" onClick={() => navigate('/app/patients')}>
+          <Search size={16} /> Find patient
+        </button>
+        <button className="btn btn--secondary" onClick={() => navigate('/app/billing')}>
+          <Banknote size={16} /> Today’s money
+        </button>
       </div>
 
       <section className="owner-panel">
         <div className="owner-panel__head">
           <h3>Today’s queue</h3>
-          <span className="owner-panel__meta">Most recent first</span>
+          <span className="owner-panel__meta">{data.count} patient{data.count === 1 ? '' : 's'}</span>
         </div>
         <div className="owner-table-wrap">
           <table className="owner-table">
             <thead>
               <tr>
-                <th>Patient</th>
                 <th>LABID</th>
+                <th>Patient</th>
                 <th>Tests</th>
-                <th className="right">Arrival</th>
-                <th>Payment</th>
+                <th>Status</th>
+                <th className="right">Balance</th>
                 <th className="right"></th>
               </tr>
             </thead>
             <tbody>
-              {data.visits.length === 0 ? (
+              {data.rows.length === 0 ? (
                 <tr><td colSpan={6} className="owner-table__empty">No patients yet today.</td></tr>
               ) : (
-                data.visits.map((v) => (
-                  <tr key={v.id}>
-                    <td className="owner-table__strong">{v.patient}</td>
-                    <td><span className="table-id">{v.labid}</span></td>
-                    <td className="owner-table__muted">{v.tests}</td>
-                    <td className="right owner-table__muted">{v.arrival}</td>
-                    <td><span className={`chip ${PAY_TONE[v.payStatus]}`}>{PAY_LABEL[v.payStatus]}</span></td>
-                    <td className="right">
-                      <button
-                        className={`btn btn--sm ${v.owing ? 'btn--primary' : 'btn--secondary'}`}
-                        onClick={() => navigate(`/app/patients/${v.labid}`)}
-                      >
-                        {v.owing ? 'Take payment' : 'View'}
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                data.rows.map((v) => {
+                  const owing = v.balance > 0
+                  const st = STATUS[v.status]
+                  const action = owing ? 'Take payment' : v.status === 'delivered' ? 'View' : 'Resend'
+                  return (
+                    <tr key={v.id}>
+                      <td><span className="table-id">{v.labid}</span></td>
+                      <td>
+                        <span className="patient-cell">
+                          <span className={`avatar ${avatarClass(v.patient)}`}>{initials(v.patient)}</span>
+                          <span>
+                            <span className="owner-table__strong" style={{ display: 'block' }}>{v.patient}</span>
+                            <span className="owner-table__muted num" style={{ fontSize: 11.5 }}>{maskPhone(v.phone)}</span>
+                          </span>
+                        </span>
+                      </td>
+                      <td className="owner-table__muted">{v.tests}</td>
+                      <td><span className={`chip ${st.tone}`}>{st.label}</span></td>
+                      <td className="right num" style={{ fontWeight: 700, color: owing ? '#c0392b' : 'var(--color-status-success)' }}>
+                        {owing ? formatNaira(v.balance) : 'Paid'}
+                      </td>
+                      <td className="right">
+                        <button
+                          className={`btn btn--sm ${owing ? 'btn--primary' : 'btn--secondary'}`}
+                          onClick={() => navigate(`/app/patients/${v.labid}`)}
+                        >
+                          {action}
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })
               )}
             </tbody>
           </table>
