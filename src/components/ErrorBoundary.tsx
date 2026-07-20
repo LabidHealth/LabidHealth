@@ -82,8 +82,8 @@ export class ErrorBoundary extends React.Component<Props, State> {
             padding: '10px 24px',
             borderRadius: 10,
             border: 'none',
-            background: 'var(--color-mint, #00E5A0)',
-            color: '#0A0A0A',
+            background: 'var(--color-mint, #2563EB)',
+            color: '#FFFFFF',
             fontWeight: 700,
             fontSize: 14,
             cursor: 'pointer'
