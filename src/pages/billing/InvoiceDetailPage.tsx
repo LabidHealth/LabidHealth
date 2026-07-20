@@ -7,6 +7,7 @@ import { formatNaira, formatDateTime } from '@/lib/formatters'
 import { offlineSuccessMessage } from '@/lib/offlineWrite'
 import { openAndPrintPdfBlob } from '@/lib/printPdf'
 import { friendlyError } from '@/lib/supabaseQuery'
+import { track } from '@/lib/analytics'
 import { enabledPaymentMethods } from '@/lib/features'
 import type { Invoice, Lab, Patient, Payment, PaymentMethod } from '@/types'
 
@@ -118,6 +119,7 @@ export function InvoiceDetailPage() {
       }
 
       await invoiceRepo.update(updated, invoice)
+      track('payment_recorded', { method, paid_in_full: newStatus === 'paid' })
       setInvoice(updated)
       setAmount('')
       setReference('')

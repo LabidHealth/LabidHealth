@@ -8,6 +8,7 @@ import { findPotentialDuplicate, type DuplicateCandidate } from '@/lib/patientSe
 import { generateLocalLabid } from '@/lib/labid'
 import { offlineSuccessMessage } from '@/lib/offlineWrite'
 import { friendlyError } from '@/lib/supabaseQuery'
+import { track } from '@/lib/analytics'
 
 interface FormValues {
   full_name: string
@@ -29,6 +30,7 @@ export function RegisterPatientPage() {
   const navigate = useNavigate()
   const toast = useToast()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const openedAt = useRef(Date.now())
 
   const [loading, setLoading] = useState(false)
   const [pendingSubmission, setPendingSubmission] = useState<FormValues | null>(null)
@@ -73,6 +75,7 @@ export function RegisterPatientPage() {
       })
     }
 
+    track('patient_registered', { duration_ms: Date.now() - openedAt.current })
     toast.push(offlineSuccessMessage(`Patient registered - LABID: ${labid}`))
     navigate(`/app/patients/${patientId}`)
   }

@@ -15,10 +15,12 @@
   "dependencies": {
     "@hookform/resolvers": "^3.0.0",
     "@react-pdf/renderer": "^3.0.0",
+    "@sentry/react": "^10.67.0",
     "@supabase/supabase-js": "^2.36.0",
     "date-fns": "^2.30.0",
     "dexie": "^3.2.3",
     "lucide-react": "^0.318.0",
+    "posthog-js": "^1.404.1",
     "qrcode": "^1.5.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

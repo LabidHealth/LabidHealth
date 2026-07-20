@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
+import { track } from '@/lib/analytics'
 
 // Patient-facing, no login. Reads the result by secure token from the
 // result-view Edge Function, and offers an optional AI explanation via
@@ -108,6 +109,7 @@ export function ResultViewPage() {
         })
       })
       const data = await res.json()
+      track('ai_explanation_requested', { language: lang, ok: res.ok, configured: res.status !== 503 })
       if (res.status === 503) {
         setExplainError('Simple explanations are coming soon. For now, please ask your doctor about your result.')
       } else if (!res.ok) {

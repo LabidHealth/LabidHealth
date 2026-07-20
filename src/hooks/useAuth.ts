@@ -4,6 +4,7 @@ import { supabase, hasBackend } from '@/lib/supabase'
 import { DEV_LAB_ID, DEV_USERS, devRoleFromEmail } from '@/lib/devMode'
 import { db } from '@/lib/db'
 import { writeRecord } from '@/lib/writeRecord'
+import { identify, resetAnalytics } from '@/lib/analytics'
 import type { LabStaff, UserRole } from '@/types'
 
 const ROLE_STORAGE_KEY = 'labid-health-user-role'
@@ -129,6 +130,7 @@ export function useAuth() {
       setUser(devSession.user)
       setRole(devRole)
       setLabId(DEV_LAB_ID)
+      identify(devUser.userId, devRole, DEV_LAB_ID)
       setMfaState('not_required')
       setLoading(false)
       return { nextPath: '/app/dashboard' }
@@ -146,6 +148,7 @@ export function useAuth() {
         setSession(data.session)
         setUser(data.session.user)
         const resolved = await loadRole(data.session.user.id)
+        if (resolved) identify(data.session.user.id, resolved.role, resolved.labId)
         const nextMfaState = await refreshMfaState(resolved?.role ?? null, data.session.user.id)
 
         if (nextMfaState === 'setup_required') nextPath = '/2fa/setup'
@@ -160,6 +163,7 @@ export function useAuth() {
 
   const signOut = useCallback(async () => {
     if (!hasBackend) {
+      resetAnalytics()
       localStorage.removeItem(DEV_SESSION_KEY)
       localStorage.removeItem(ROLE_STORAGE_KEY)
       localStorage.removeItem(LAB_STORAGE_KEY)
@@ -172,6 +176,7 @@ export function useAuth() {
     }
 
     setLoading(true)
+    resetAnalytics()
     await supabase.auth.signOut()
     setSession(null)
     setUser(null)
@@ -218,6 +223,7 @@ export function useAuth() {
         if (data.session?.user) {
           const resolved = await loadRole(data.session.user.id)
           if (!isMounted) return
+          if (resolved) identify(data.session.user.id, resolved.role, resolved.labId)
           await refreshMfaState(resolved?.role ?? null, data.session.user.id)
         } else {
           const fallback = await resolveStaffContextFromCache()
@@ -240,8 +246,10 @@ export function useAuth() {
 
       if (currentSession?.user) {
         const resolved = await loadRole(currentSession.user.id)
+        if (resolved) identify(currentSession.user.id, resolved.role, resolved.labId)
         await refreshMfaState(resolved?.role ?? null, currentSession.user.id)
       } else {
+        resetAnalytics()
         setRole(null)
         setLabId(null)
         setMfaState('not_required')

@@ -5,6 +5,7 @@ import { Button, EmptyState, Input, useToast } from '@/components/ui'
 import { useAuthContext } from '@/context/AuthContext'
 import { offlineSuccessMessage } from '@/lib/offlineWrite'
 import { friendlyError, supabaseQuery } from '@/lib/supabaseQuery'
+import { track } from '@/lib/analytics'
 import type { InvoiceLineItem, Patient, PriceListItem, Result, Sample, SampleEvent } from '@/types'
 
 type TestCategory = {
@@ -160,6 +161,7 @@ export function RegisterSamplePage() {
       }
 
       await sampleRepo.create(sample)
+      track('sample_registered', { test_count: tests.length, is_stat: isStat })
 
       const event: SampleEvent = {
         id: crypto.randomUUID(),

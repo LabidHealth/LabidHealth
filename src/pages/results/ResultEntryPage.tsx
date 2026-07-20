@@ -7,6 +7,7 @@ import { useAuthContext } from '@/context/AuthContext'
 import { formatDateTime } from '@/lib/formatters'
 import { offlineSuccessMessage } from '@/lib/offlineWrite'
 import { friendlyError } from '@/lib/supabaseQuery'
+import { track } from '@/lib/analytics'
 import { evaluateNumeric, evaluateQualitative, getCatalogTest, refText } from '@/lib/catalog'
 import { features } from '@/lib/features'
 import type {
@@ -123,6 +124,10 @@ export function ResultEntryPage() {
         updated_at: now
       }
       await resultRepo.update(updated, result)
+      if (nextStatus !== 'draft') {
+        track('result_entered', { result_type: shape, finalised: finalise, had_critical: hasCritical })
+        if (finalise) track('result_approved', { self_approved: true })
+      }
       setResult(updated)
       toast.push(
         offlineSuccessMessage(

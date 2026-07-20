@@ -9,6 +9,7 @@ import { formatDate, formatDateTime } from '@/lib/formatters'
 import { offlineSuccessMessage } from '@/lib/offlineWrite'
 import { friendlyError } from '@/lib/supabaseQuery'
 import { supabase } from '@/lib/supabase'
+import { track } from '@/lib/analytics'
 import { getCatalogTest, refText } from '@/lib/catalog'
 import type { CatalogParameter, CatalogTest, Lab, Notification, Patient, Result, ResultParameter, ResultParameterStatus, Sample, SampleEvent } from '@/types'
 
@@ -163,6 +164,7 @@ export function ResultApprovalPage() {
         pdf_generated_at: pdfUrl ? now : null
       }
       await resultRepo.update(finalResult, result)
+      track('result_approved', { self_approved: false })
       setResult(finalResult)
 
       const approvalEvent: SampleEvent = {

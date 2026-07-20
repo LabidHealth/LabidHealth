@@ -1,4 +1,5 @@
 import React from 'react'
+import { captureError } from '@/lib/analytics'
 
 interface Props {
   children: React.ReactNode
@@ -25,6 +26,8 @@ export class ErrorBoundary extends React.Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
+    // Report to Sentry (dormant until configured).
+    captureError(error, { componentStack: info.componentStack })
     // In development, surface the full stack so engineers can debug quickly.
     if (import.meta.env.DEV) {
       console.error('[ErrorBoundary] Uncaught render error:', error, info.componentStack)

@@ -1,6 +1,7 @@
 import { writeRecord } from './writeRecord'
 import { features } from './features'
 import { supabase } from './supabase'
+import { track } from './analytics'
 import type { Invoice, Notification, Patient, Result } from '@/types'
 
 const FUNCTIONS_BASE = `${import.meta.env.VITE_SUPABASE_URL ?? ''}/functions/v1`
@@ -96,6 +97,7 @@ export async function deliverViaWhatsApp(args: {
   }
 
   await writeRecord('notifications', 'INSERT', notification)
+  track('result_delivered', { channel: 'whatsapp', ok: true })
 
   return { notification, waUrl: buildWaMeUrl(patient.phone, deliveryMessage(patient.full_name, testName, labName, link)) }
 }
@@ -129,7 +131,11 @@ export async function deliverViaSms(args: { result: Result; patient: Patient; te
   })
   const payload = await res.json().catch(() => ({}) as { message?: string })
   if (res.status === 503) return { status: 'not_configured', message: payload.message ?? 'SMS is not enabled yet.' }
-  if (!res.ok) return { status: 'failed', message: payload.message ?? 'SMS could not be sent.' }
+  if (!res.ok) {
+    track('result_delivered', { channel: 'sms', ok: false })
+    return { status: 'failed', message: payload.message ?? 'SMS could not be sent.' }
+  }
+  track('result_delivered', { channel: 'sms', ok: true })
 
   const now = new Date().toISOString()
   const notification: Notification = {
