@@ -1,182 +1,252 @@
 import React, { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { AlertTriangle, FileText, X } from 'lucide-react'
-import { Button, EmptyState } from '@/components/ui'
 
-type ResultParam = { value?: string; unit?: string; status: string }
-type PublicResult = {
-  patient_name?: string
-  labid?: string
-  test_type?: string
-  sample_id?: string
-  parameters?: Record<string, ResultParam>
-  comments?: string
-  approved_at: string
+// Patient-facing, no login. Reads the result by secure token from the
+// result-view Edge Function, and offers an optional AI explanation via
+// explain-result. Self-contained styling so it doesn't depend on the
+// authenticated app shell — patients open this on a phone from a WhatsApp link.
+
+const FUNCTIONS_BASE = `${import.meta.env.VITE_SUPABASE_URL ?? ''}/functions/v1`
+const ANON = import.meta.env.VITE_SUPABASE_ANON_KEY ?? ''
+
+type Lang = 'en' | 'pcm' | 'ig'
+
+interface ResultParam {
+  key: string
+  name: string
+  value: string
+  unit: string | null
+  status: string | null
+  ref: string | null
+}
+
+interface ResultView {
+  patient_name: string | null
+  labid: string
+  test_name: string
+  test_type: string
+  comments: string | null
+  approved_at: string | null
+  parameters: ResultParam[]
+  lab: { name: string; address: string | null; phone: string | null; mlscn_no: string; disclaimer: string | null } | null
+}
+
+const LANG_LABEL: Record<Lang, string> = { en: 'English', pcm: 'Pidgin', ig: 'Igbo' }
+
+const STATUS_STYLE: Record<string, { bg: string; fg: string; label: string }> = {
+  low: { bg: '#FEF3C7', fg: '#92400E', label: 'Low' },
+  high: { bg: '#FEF3C7', fg: '#92400E', label: 'High' },
+  critical_low: { bg: '#FEE2E2', fg: '#991B1B', label: 'Critically low' },
+  critical_high: { bg: '#FEE2E2', fg: '#991B1B', label: 'Critically high' },
+  normal: { bg: '#DCFCE7', fg: '#166534', label: 'Normal' }
 }
 
 export function ResultViewPage() {
   const { token } = useParams()
-  const [result, setResult] = useState<PublicResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [expired, setExpired] = useState(false)
+  const [result, setResult] = useState<ResultView | null>(null)
+
+  const [lang, setLang] = useState<Lang>('en')
+  const [explaining, setExplaining] = useState(false)
+  const [explanation, setExplanation] = useState<{ text: string; disclaimer: string } | null>(null)
+  const [explainError, setExplainError] = useState<string | null>(null)
 
   useEffect(() => {
-    async function loadResult() {
-      if (!token) {
-        setError('No token provided')
-        setLoading(false)
-        return
-      }
-
+    let mounted = true
+    void (async () => {
       try {
-        const response = await fetch(`/api/verify-result?token=${token}`)
-        const data = await response.json()
-
-        if (!response.ok) {
-          if (data.error === 'Token expired') {
-            setExpired(true)
-            setError('This link has expired. Please contact the lab for a new result link.')
-          } else {
-            setError(data.error || 'Failed to load result')
-          }
-          setLoading(false)
-          return
+        const res = await fetch(`${FUNCTIONS_BASE}/result-view?token=${encodeURIComponent(token ?? '')}`, {
+          headers: ANON ? { apikey: ANON, Authorization: `Bearer ${ANON}` } : {}
+        })
+        const data = await res.json()
+        if (!mounted) return
+        if (!res.ok) {
+          setError(
+            data.error === 'expired'
+              ? 'This link has expired. Please contact the lab for a new one.'
+              : data.error === 'not_available'
+              ? 'This result is not ready yet.'
+              : 'We could not find this result. Please check your link.'
+          )
+        } else {
+          setResult(data as ResultView)
         }
-
-        setResult(data.result)
-        setLoading(false)
       } catch {
-        setError('Failed to connect to server')
-        setLoading(false)
+        if (mounted) setError('Could not connect. Please check your internet and try again.')
+      } finally {
+        if (mounted) setLoading(false)
       }
+    })()
+    return () => {
+      mounted = false
     }
-
-    void loadResult()
   }, [token])
 
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', padding: 20 }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 24, marginBottom: 16 }}>Loading result...</div>
-        </div>
-      </div>
-    )
-  }
-
-  if (error || expired) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', padding: 20 }}>
-        <EmptyState
-          icon={expired ? <X size={48} /> : <AlertTriangle size={48} />}
-          headline={expired ? 'Link Expired' : 'Error'}
-          description={error || 'Failed to load result'}
-          cta={
-            <Button variant="secondary" onClick={() => window.location.href = 'https://labidhealth.com'}>
-              Return to Labid Health
-            </Button>
-          }
-        />
-      </div>
-    )
-  }
-
-  if (!result) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', padding: 20 }}>
-        <EmptyState
-          icon={<FileText size={48} />}
-          headline="Result not found"
-          description="This result could not be found or may have been deleted."
-          cta={
-            <Button variant="secondary" onClick={() => window.location.href = 'https://labidhealth.com'}>
-              Return to Labid Health
-            </Button>
-          }
-        />
-      </div>
-    )
+  async function handleExplain() {
+    if (!result) return
+    setExplaining(true)
+    setExplainError(null)
+    setExplanation(null)
+    try {
+      const res = await fetch(`${FUNCTIONS_BASE}/explain-result`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(ANON ? { apikey: ANON, Authorization: `Bearer ${ANON}` } : {})
+        },
+        body: JSON.stringify({
+          test_name: result.test_name,
+          language: lang,
+          parameters: result.parameters.map((p) => ({
+            name: p.name,
+            value: p.value,
+            unit: p.unit,
+            status: p.status,
+            ref: p.ref
+          }))
+        })
+      })
+      const data = await res.json()
+      if (res.status === 503) {
+        setExplainError('Simple explanations are coming soon. For now, please ask your doctor about your result.')
+      } else if (!res.ok) {
+        setExplainError(data.message ?? 'Could not generate an explanation right now.')
+      } else {
+        setExplanation({ text: data.explanation, disclaimer: data.disclaimer })
+      }
+    } catch {
+      setExplainError('Could not connect. Please try again.')
+    } finally {
+      setExplaining(false)
+    }
   }
 
   return (
-    <div style={{ maxWidth: 900, margin: '0 auto', padding: 40, fontFamily: 'system-ui, sans-serif' }}>
-      <header style={{ marginBottom: 32, borderBottom: '2px solid #003D28', paddingBottom: 16 }}>
-        <h1 style={{ fontSize: 24, color: '#003D28', margin: 0 }}>Labid Health Laboratory Result</h1>
-        <p style={{ fontSize: 14, color: '#4A4A4A', margin: '8px 0 0 0' }}>Official Laboratory Report</p>
-      </header>
-
-      <div style={{ background: '#FFFFFF', border: '1px solid #E0E0E0', borderRadius: 8, padding: 24, marginBottom: 24 }}>
-        <h2 style={{ fontSize: 18, color: '#0A0A0A', marginBottom: 16 }}>Patient Information</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
-          <div>
-            <strong style={{ fontSize: 12, color: '#4A4A4A', textTransform: 'uppercase' }}>Patient Name</strong>
-            <div style={{ fontSize: 16, marginTop: 4 }}>{result.patient_name || '—'}</div>
-          </div>
-          <div>
-            <strong style={{ fontSize: 12, color: '#4A4A4A', textTransform: 'uppercase' }}>LABID</strong>
-            <div style={{ fontSize: 16, marginTop: 4, fontFamily: 'monospace' }}>{result.labid || '—'}</div>
-          </div>
-          <div>
-            <strong style={{ fontSize: 12, color: '#4A4A4A', textTransform: 'uppercase' }}>Test Type</strong>
-            <div style={{ fontSize: 16, marginTop: 4 }}>{result.test_type || '—'}</div>
-          </div>
-          <div>
-            <strong style={{ fontSize: 12, color: '#4A4A4A', textTransform: 'uppercase' }}>Sample ID</strong>
-            <div style={{ fontSize: 16, marginTop: 4, fontFamily: 'monospace' }}>{result.sample_id || '—'}</div>
-          </div>
+    <div style={{ minHeight: '100vh', background: '#F6F8FB', color: '#0F172A', fontFamily: 'system-ui, sans-serif' }}>
+      <div style={{ maxWidth: 560, margin: '0 auto', padding: '20px 16px 48px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+          <span style={{ width: 28, height: 28, borderRadius: 8, background: '#2563EB', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 700 }}>L</span>
+          <strong style={{ fontSize: 16 }}>Labid Health</strong>
         </div>
+
+        {loading ? (
+          <p style={{ color: '#64748B' }}>Loading your result…</p>
+        ) : error ? (
+          <div style={card}>
+            <p style={{ margin: 0 }}>{error}</p>
+          </div>
+        ) : result ? (
+          <>
+            <div style={card}>
+              {result.lab ? (
+                <div style={{ borderBottom: '1px solid #E2E8F0', paddingBottom: 12, marginBottom: 12 }}>
+                  <div style={{ fontWeight: 700 }}>{result.lab.name}</div>
+                  {result.lab.address ? <div style={{ fontSize: 13, color: '#64748B' }}>{result.lab.address}</div> : null}
+                  <div style={{ fontSize: 12, color: '#94A3B8' }}>MLSCN: {result.lab.mlscn_no}</div>
+                </div>
+              ) : null}
+
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 13, color: '#64748B' }}>Patient</div>
+                <div style={{ fontWeight: 600 }}>{result.patient_name ?? '—'}</div>
+                <div style={{ fontSize: 12, color: '#94A3B8', fontFamily: 'monospace' }}>{result.labid}</div>
+              </div>
+
+              <h1 style={{ fontSize: 20, margin: '0 0 4px' }}>{result.test_name}</h1>
+              {result.approved_at ? (
+                <div style={{ fontSize: 12, color: '#94A3B8', marginBottom: 16 }}>
+                  Reported {new Date(result.approved_at).toLocaleDateString()}
+                </div>
+              ) : null}
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {result.parameters.length === 0 ? (
+                  <p style={{ color: '#64748B' }}>{result.comments ?? 'See your report.'}</p>
+                ) : (
+                  result.parameters.map((p) => {
+                    const s = p.status ? STATUS_STYLE[p.status] : null
+                    return (
+                      <div key={p.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #F1F5F9', paddingBottom: 8 }}>
+                        <div>
+                          <div style={{ fontWeight: 600 }}>{p.name}</div>
+                          {p.ref ? <div style={{ fontSize: 12, color: '#94A3B8' }}>Usual: {p.ref}</div> : null}
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontWeight: 700 }}>
+                            {p.value}
+                            {p.unit ? <span style={{ fontSize: 12, color: '#94A3B8', fontWeight: 400 }}> {p.unit}</span> : null}
+                          </div>
+                          {s && p.status !== 'normal' ? (
+                            <span style={{ fontSize: 11, background: s.bg, color: s.fg, borderRadius: 999, padding: '2px 8px' }}>{s.label}</span>
+                          ) : null}
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+
+              {result.comments ? (
+                <div style={{ marginTop: 12, fontSize: 13, color: '#475569', background: '#F8FAFC', borderRadius: 8, padding: 10 }}>
+                  <strong>Note from the lab:</strong> {result.comments}
+                </div>
+              ) : null}
+            </div>
+
+            <div style={card}>
+              <h2 style={{ fontSize: 16, margin: '0 0 8px' }}>Understand your result</h2>
+              <p style={{ fontSize: 13, color: '#64748B', marginTop: 0 }}>Get a simple, plain-language explanation. This is not a diagnosis.</p>
+
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                {(['en', 'pcm', 'ig'] as Lang[]).map((l) => (
+                  <button
+                    key={l}
+                    type="button"
+                    onClick={() => setLang(l)}
+                    style={{
+                      flex: 1, padding: '8px 4px', borderRadius: 8, fontSize: 13, cursor: 'pointer',
+                      border: lang === l ? '1px solid #2563EB' : '1px solid #E2E8F0',
+                      background: lang === l ? '#EFF6FF' : '#fff', color: lang === l ? '#2563EB' : '#334155', fontWeight: lang === l ? 600 : 400
+                    }}
+                  >
+                    {LANG_LABEL[l]}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => void handleExplain()}
+                disabled={explaining}
+                style={{ width: '100%', padding: '12px', borderRadius: 10, border: 'none', background: '#2563EB', color: '#fff', fontWeight: 600, fontSize: 15, cursor: 'pointer', opacity: explaining ? 0.7 : 1 }}
+              >
+                {explaining ? 'Explaining…' : 'Explain this simply'}
+              </button>
+
+              {explainError ? <p style={{ fontSize: 13, color: '#64748B', marginBottom: 0 }}>{explainError}</p> : null}
+              {explanation ? (
+                <div style={{ marginTop: 14 }}>
+                  <p style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, margin: 0 }}>{explanation.text}</p>
+                  <p style={{ fontSize: 12, color: '#94A3B8', marginTop: 12, borderTop: '1px solid #F1F5F9', paddingTop: 10 }}>{explanation.disclaimer}</p>
+                </div>
+              ) : null}
+            </div>
+
+            {result.lab?.disclaimer ? (
+              <p style={{ fontSize: 11, color: '#94A3B8', textAlign: 'center', marginTop: 8 }}>{result.lab.disclaimer}</p>
+            ) : null}
+          </>
+        ) : null}
       </div>
-
-      <div style={{ background: '#FFFFFF', border: '1px solid #E0E0E0', borderRadius: 8, padding: 24, marginBottom: 24 }}>
-        <h2 style={{ fontSize: 18, color: '#0A0A0A', marginBottom: 16 }}>Test Results</h2>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ background: '#F5F5F0' }}>
-                <th style={{ padding: 12, textAlign: 'left', fontSize: 12, color: '#4A4A4A', textTransform: 'uppercase', borderBottom: '1px solid #E0E0E0' }}>Parameter</th>
-                <th style={{ padding: 12, textAlign: 'right', fontSize: 12, color: '#4A4A4A', textTransform: 'uppercase', borderBottom: '1px solid #E0E0E0' }}>Value</th>
-                <th style={{ padding: 12, textAlign: 'right', fontSize: 12, color: '#4A4A4A', textTransform: 'uppercase', borderBottom: '1px solid #E0E0E0' }}>Unit</th>
-                <th style={{ padding: 12, textAlign: 'right', fontSize: 12, color: '#4A4A4A', textTransform: 'uppercase', borderBottom: '1px solid #E0E0E0' }}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Object.entries(result.parameters || {}).map(([key, param]) => {
-                const isHigh = param.status === 'high' || param.status === 'critical_high'
-                const isLow = param.status === 'low' || param.status === 'critical_low'
-                return (
-                  <tr key={key} style={{ borderBottom: '1px solid #EEEEEE' }}>
-                    <td style={{ padding: 12, fontSize: 14 }}>{key.replace(/_/g, ' ')}</td>
-                    <td style={{ padding: 12, textAlign: 'right', fontSize: 14, fontWeight: isHigh || isLow ? 600 : 400, color: isHigh ? '#FF4D4D' : isLow ? '#FFB800' : '#0A0A0A' }}>
-                      {param.value} {isHigh ? '↑' : isLow ? '↓' : ''}
-                    </td>
-                    <td style={{ padding: 12, textAlign: 'right', fontSize: 14, color: '#4A4A4A' }}>{param.unit || '—'}</td>
-                    <td style={{ padding: 12, textAlign: 'right', fontSize: 12, textTransform: 'uppercase', color: isHigh || isLow ? '#FF4D4D' : '#00875A' }}>
-                      {param.status.replace(/_/g, ' ')}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {result.comments ? (
-        <div style={{ background: '#FFF8F0', border: '1px solid #FFB800', borderRadius: 8, padding: 16, marginBottom: 24 }}>
-          <h3 style={{ fontSize: 14, color: '#B36B00', margin: '0 0 8px 0', textTransform: 'uppercase' }}>Comments</h3>
-          <p style={{ fontSize: 14, margin: 0 }}>{result.comments}</p>
-        </div>
-      ) : null}
-
-      <div style={{ background: '#F5F5F0', padding: 16, borderRadius: 8, fontSize: 12, color: '#4A4A4A', textAlign: 'center' }}>
-        <p style={{ margin: 0 }}>Approved on {new Date(result.approved_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
-        <p style={{ margin: '4px 0 0 0' }}>This is an official laboratory result. For questions, please contact the laboratory directly.</p>
-      </div>
-
-      <footer style={{ marginTop: 32, paddingTop: 16, borderTop: '1px solid #E0E0E0', fontSize: 12, color: '#4A4A4A', textAlign: 'center' }}>
-        <p style={{ margin: 0 }}>Generated by Labid Health Laboratory Management System</p>
-      </footer>
     </div>
   )
+}
+
+const card: React.CSSProperties = {
+  background: '#fff',
+  borderRadius: 14,
+  border: '1px solid #E2E8F0',
+  padding: 16,
+  marginBottom: 14
 }

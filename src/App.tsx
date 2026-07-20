@@ -28,6 +28,10 @@ const PriceListPage        = lazy(() => import('@/pages/settings/PriceListPage')
 const TwoFactorSetupPage   = lazy(() => import('@/pages/login/TwoFactorSetupPage').then((m) => ({ default: m.TwoFactorSetupPage })))
 const TwoFactorVerifyPage  = lazy(() => import('@/pages/login/TwoFactorVerifyPage').then((m) => ({ default: m.TwoFactorVerifyPage })))
 
+// Public, no-auth patient pages (opened from a WhatsApp/SMS link)
+const ResultViewPage       = lazy(() => import('@/pages/public/ResultViewPage').then((m) => ({ default: m.ResultViewPage })))
+const VerifyResultPage     = lazy(() => import('@/pages/public/VerifyResultPage').then((m) => ({ default: m.VerifyResultPage })))
+
 function PageLoader() {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 240, color: 'var(--color-text-secondary)', fontSize: 14 }}>
@@ -55,6 +59,10 @@ export function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/2fa/setup" element={<Suspense fallback={<PageLoader />}><TwoFactorSetupPage /></Suspense>} />
             <Route path="/2fa/verify" element={<Suspense fallback={<PageLoader />}><TwoFactorVerifyPage /></Suspense>} />
+
+            {/* Public patient result view + QR verification (no auth) */}
+            <Route path="/r/:token" element={<Suspense fallback={<PageLoader />}><ResultViewPage /></Suspense>} />
+            <Route path="/verify/:token" element={<Suspense fallback={<PageLoader />}><VerifyResultPage /></Suspense>} />
 
             <Route
               path="/app/*"
