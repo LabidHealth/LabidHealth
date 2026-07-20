@@ -7,7 +7,7 @@ import { RoleGuard } from '@/components/shared/RoleGuard'
 import { useAuthContext } from '@/context/AuthContext'
 import { formatDateTime, formatNaira, formatTimeAgo } from '@/lib/formatters'
 import { getDeliveryStatus } from '@/lib/notifications'
-import { deliverViaWhatsApp, isDeliveryHeld } from '@/lib/delivery'
+import { deliverViaSms, deliverViaWhatsApp, isDeliveryHeld } from '@/lib/delivery'
 import { offlineSuccessMessage } from '@/lib/offlineWrite'
 import { friendlyError } from '@/lib/supabaseQuery'
 import { pull } from '@/lib/pull'
@@ -31,6 +31,7 @@ function DeliverySection({
   // undefined = still loading; null = none yet; Notification = already delivered.
   const [notification, setNotification] = useState<Notification | null | undefined>(undefined)
   const [sending, setSending] = useState(false)
+  const [smsSending, setSmsSending] = useState(false)
 
   useEffect(() => {
     let mounted = true
@@ -66,6 +67,29 @@ function DeliverySection({
     }
   }
 
+  // SMS fallback (Termii). Sends server-side; dormant until configured.
+  async function handleSms() {
+    if (!patient) {
+      toast.push('Patient record is missing.', 'error')
+      return
+    }
+    if (held) return
+    setSmsSending(true)
+    try {
+      const outcome = await deliverViaSms({ result, patient, testName })
+      if (outcome.status === 'sent') {
+        setNotification(outcome.notification)
+        toast.push(offlineSuccessMessage('SMS sent to patient'))
+      } else {
+        toast.push(outcome.message, outcome.status === 'failed' ? 'error' : undefined)
+      }
+    } catch (error) {
+      toast.push(friendlyError(error), 'error')
+    } finally {
+      setSmsSending(false)
+    }
+  }
+
   if (notification === undefined) return null
 
   // Not yet delivered → payment gate banner or the Send action.
@@ -86,9 +110,14 @@ function DeliverySection({
             <p className="list-subtitle" style={{ marginTop: 0 }}>
               Opens WhatsApp with a secure result link pre-filled to {patient?.phone ?? 'the patient'}.
             </p>
-            <Button variant="primary" icon={<MessageSquare size={16} />} loading={sending} disabled={!patient} onClick={() => void handleDeliver()}>
-              Send via WhatsApp
-            </Button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <Button variant="primary" icon={<MessageSquare size={16} />} loading={sending} disabled={!patient} onClick={() => void handleDeliver()}>
+                Send via WhatsApp
+              </Button>
+              <Button variant="secondary" loading={smsSending} disabled={!patient} onClick={() => void handleSms()}>
+                Send via SMS
+              </Button>
+            </div>
           </>
         )}
       </article>
@@ -121,9 +150,14 @@ function DeliverySection({
         {notification.sent_at ? <div><dt>Sent</dt><dd>{formatDateTime(notification.sent_at)}</dd></div> : null}
         {notification.opened_at ? <div><dt>Opened</dt><dd>{formatDateTime(notification.opened_at)}</dd></div> : null}
       </dl>
-      <Button variant="secondary" size="sm" loading={sending} onClick={() => void handleDeliver()}>
-        Resend via WhatsApp
-      </Button>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <Button variant="secondary" size="sm" loading={sending} onClick={() => void handleDeliver()}>
+          Resend via WhatsApp
+        </Button>
+        <Button variant="secondary" size="sm" loading={smsSending} onClick={() => void handleSms()}>
+          Send via SMS
+        </Button>
+      </div>
     </article>
   )
 }

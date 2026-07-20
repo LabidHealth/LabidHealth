@@ -1,17 +1,18 @@
 // explain-result — patient-facing plain-language explanation of a lab result.
 //
 // Advisory and NON-diagnostic by construction: a strict system prompt plus a
-// disclaimer that is appended server-side (never left to the model) so it is
-// always present. Online-only; the secret lives solely in this function's env.
+// disclaimer appended server-side (never left to the model) so it is always
+// present. Online-only; secrets live solely in this function's env.
 //
-// Dormant until ANTHROPIC_API_KEY is set: returns 503 with a clear message so
-// the client can degrade gracefully instead of erroring.
+// Provider is selected by AI_PROVIDER (default 'anthropic' — the production
+// choice). Set AI_PROVIDER=groq + GROQ_API_KEY for a cheap dev provider
+// (OpenAI-compatible Llama). Dormant (503) until the selected provider's key is
+// set, so the client degrades gracefully.
 import Anthropic from 'npm:@anthropic-ai/sdk@0.68.0'
 import { corsHeaders, jsonResponse } from '../_shared/cors.ts'
 
-// Confirmed against the claude-api reference: cost-appropriate for a high-volume,
-// simple explanation task, and the model the product spec (mvp-spec.md M8) calls for.
-const MODEL = 'claude-haiku-4-5'
+const ANTHROPIC_MODEL = 'claude-haiku-4-5'
+const GROQ_MODEL = Deno.env.get('GROQ_MODEL') ?? 'llama-3.3-70b-versatile'
 
 type Lang = 'en' | 'pcm' | 'ig'
 
@@ -19,7 +20,7 @@ interface ResultParam {
   name: string
   value: string
   unit?: string | null
-  status?: string | null // normal | low | high | critical_low | critical_high
+  status?: string | null
   ref?: string | null
 }
 
@@ -35,7 +36,6 @@ const LANG_NAME: Record<Lang, string> = {
   ig: 'Igbo'
 }
 
-// Appended verbatim so the safety disclaimer can never be omitted by the model.
 const DISCLAIMER: Record<Lang, string> = {
   en: 'This explanation is for general understanding only and is not a diagnosis. Please discuss your results with a doctor or qualified health worker.',
   pcm: 'Dis explanation na just to help you understand small — e no be diagnosis. Abeg make you talk to doctor or health worker about your result.',
@@ -62,16 +62,51 @@ function buildUserContent(req: ExplainRequest): string {
   return `Test: ${req.test_name}\nResults:\n${lines.join('\n')}\n\nExplain what this means in simple terms for the patient.`
 }
 
+// ── Providers ────────────────────────────────────────────────────────────────
+async function explainWithAnthropic(system: string, user: string, apiKey: string): Promise<string> {
+  const client = new Anthropic({ apiKey })
+  const message = await client.messages.create({
+    model: ANTHROPIC_MODEL,
+    max_tokens: 600,
+    system,
+    messages: [{ role: 'user', content: user }]
+  })
+  if (message.stop_reason === 'refusal') return ''
+  return message.content
+    .filter((b) => b.type === 'text')
+    .map((b) => (b as { text: string }).text)
+    .join('\n')
+    .trim()
+}
+
+async function explainWithGroq(system: string, user: string, apiKey: string): Promise<string> {
+  // Groq is OpenAI-compatible. Dev-only provider — Anthropic is the prod default.
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: GROQ_MODEL,
+      max_tokens: 600,
+      temperature: 0.4,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user }
+      ]
+    })
+  })
+  if (!res.ok) throw new Error(`Groq ${res.status}: ${(await res.text()).slice(0, 200)}`)
+  const data = await res.json()
+  return (data.choices?.[0]?.message?.content ?? '').trim()
+}
+
 Deno.serve(async (request: Request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (request.method !== 'POST') return jsonResponse({ error: 'Method not allowed' }, 405)
 
-  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
-  if (!apiKey) {
-    return jsonResponse(
-      { error: 'not_configured', message: 'AI explanations are not enabled yet.' },
-      503
-    )
+  const provider = (Deno.env.get('AI_PROVIDER') ?? 'anthropic').toLowerCase()
+  const key = provider === 'groq' ? Deno.env.get('GROQ_API_KEY') : Deno.env.get('ANTHROPIC_API_KEY')
+  if (!key) {
+    return jsonResponse({ error: 'not_configured', message: 'AI explanations are not enabled yet.' }, 503)
   }
 
   let body: ExplainRequest
@@ -86,30 +121,17 @@ Deno.serve(async (request: Request) => {
     return jsonResponse({ error: 'test_name and parameters are required' }, 400)
   }
 
-  try {
-    const client = new Anthropic({ apiKey })
-    const message = await client.messages.create({
-      model: MODEL,
-      max_tokens: 600,
-      system: systemPrompt(language),
-      messages: [{ role: 'user', content: buildUserContent({ ...body, language }) }]
-    })
+  const system = systemPrompt(language)
+  const user = buildUserContent({ ...body, language })
 
-    if (message.stop_reason === 'refusal') {
+  try {
+    const explanation =
+      provider === 'groq' ? await explainWithGroq(system, user, key) : await explainWithAnthropic(system, user, key)
+
+    if (!explanation) {
       return jsonResponse({ error: 'refused', message: DISCLAIMER[language] }, 200)
     }
-
-    const explanation = message.content
-      .filter((b) => b.type === 'text')
-      .map((b) => (b as { text: string }).text)
-      .join('\n')
-      .trim()
-
-    return jsonResponse({
-      language,
-      explanation,
-      disclaimer: DISCLAIMER[language]
-    })
+    return jsonResponse({ language, explanation, disclaimer: DISCLAIMER[language] })
   } catch (error) {
     console.error('explain-result error:', error)
     return jsonResponse({ error: 'ai_error', message: 'Could not generate an explanation right now.' }, 502)
