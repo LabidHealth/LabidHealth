@@ -1,5 +1,5 @@
 import { db } from './db'
-import { seedCatalog } from './catalog'
+import { DEFAULT_PRICE_LIST, seedCatalog } from './catalog'
 import { hasBackend } from './supabase'
 import type { Lab, LabStaff, PriceListItem, UserRole } from '@/types'
 
@@ -28,34 +28,6 @@ export function devRoleFromEmail(email: string): UserRole {
   return 'owner'
 }
 
-// Placeholder prices in kobo (divide by 100 for naira). Confirm real prices
-// with the lab on-site — these are only to make the dev catalog functional.
-const DEV_PRICE_LIST: Array<{ code: string; name: string; category: string; price: number }> = [
-  { code: 'FBC', name: 'Full Blood Count', category: 'Haematology', price: 350000 },
-  { code: 'DIFF', name: 'Differential Count', category: 'Haematology', price: 250000 },
-  { code: 'ESR', name: 'ESR', category: 'Haematology', price: 150000 },
-  { code: 'BGG', name: 'Blood Group & Genotype', category: 'Haematology', price: 250000 },
-  { code: 'MALRDT', name: 'Malaria RDT', category: 'Haematology', price: 150000 },
-  { code: 'MALMIC', name: 'Malaria Microscopy', category: 'Haematology', price: 150000 },
-  { code: 'LFT', name: 'Liver Function Test', category: 'Biochemistry', price: 500000 },
-  { code: 'RFT', name: 'Electrolytes & Urea (E&U)', category: 'Biochemistry', price: 500000 },
-  { code: 'LIPID', name: 'Lipid Profile', category: 'Biochemistry', price: 450000 },
-  { code: 'FBG', name: 'Fasting Blood Glucose', category: 'Biochemistry', price: 120000 },
-  { code: 'HBA1C', name: 'HbA1c', category: 'Biochemistry', price: 400000 },
-  { code: 'CNS', name: 'Culture & Sensitivity (M/C/S)', category: 'Microbiology', price: 500000 },
-  { code: 'WIDAL', name: 'Widal Test', category: 'Microbiology', price: 200000 },
-  { code: 'VDRL', name: 'VDRL / Syphilis', category: 'Serology', price: 200000 },
-  { code: 'HBSAG', name: 'Hepatitis B (HBsAg)', category: 'Serology', price: 200000 },
-  { code: 'HIV', name: 'HIV 1 & 2 Screening', category: 'Serology', price: 200000 },
-  { code: 'URINAL', name: 'Urinalysis', category: 'Urinalysis', price: 150000 },
-  { code: 'URMIC', name: 'Urine Microscopy', category: 'Urinalysis', price: 150000 },
-  { code: 'TSH', name: 'TSH', category: 'Hormones', price: 500000 },
-  { code: 'FT3', name: 'FT3', category: 'Hormones', price: 500000 },
-  { code: 'FT4', name: 'FT4', category: 'Hormones', price: 500000 },
-  { code: 'PSA', name: 'PSA', category: 'Hormones', price: 500000 },
-  { code: 'PREG', name: 'Pregnancy Test', category: 'Hormones', price: 150000 },
-  { code: 'STOOL', name: 'Stool Microscopy', category: 'Other', price: 150000 }
-]
 
 /** Seeds a dev lab, staff (one per role), and the KEMI test menu into Dexie. */
 export async function seedDevDataIfNeeded(): Promise<void> {
@@ -92,7 +64,7 @@ export async function seedDevDataIfNeeded(): Promise<void> {
   }))
   await db.lab_staff.bulkPut(staff)
 
-  const priceList: PriceListItem[] = DEV_PRICE_LIST.map((t) => ({
+  const priceList: PriceListItem[] = DEFAULT_PRICE_LIST.map((t) => ({
     id: `dev-price-${t.code}`,
     lab_id: DEV_LAB_ID,
     test_code: t.code,

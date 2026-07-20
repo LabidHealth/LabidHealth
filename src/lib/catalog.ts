@@ -1,5 +1,13 @@
 import { db } from './db'
-import type { CatalogParameter, CatalogResultType, CatalogTest, RefOperator, ResultParameterStatus } from '@/types'
+import { catalogParamRepo, catalogTestRepo, priceRepo } from './repositories'
+import type {
+  CatalogParameter,
+  CatalogResultType,
+  CatalogTest,
+  PriceListItem,
+  RefOperator,
+  ResultParameterStatus
+} from '@/types'
 
 /**
  * The design-partner (KEMI) test catalog, covering all five result shapes:
@@ -95,16 +103,48 @@ const CATALOG: ST[] = [
   { code: 'USS', name: 'Abdominal Ultrasound', category: 'Imaging', specimen: '—', type: 'narrative' }
 ]
 
-export async function seedCatalog(labId: string): Promise<void> {
-  if ((await db.catalog_tests.count()) > 0) return
+/**
+ * Default price list (kobo). Includes a few codes beyond the result catalog
+ * (e.g. DIFF, ESR, cultures) that are billed but entered as free-form results.
+ * Confirm real prices with the lab on-site — these are starting defaults.
+ */
+export const DEFAULT_PRICE_LIST: Array<{ code: string; name: string; category: string; price: number }> = [
+  { code: 'FBC', name: 'Full Blood Count', category: 'Haematology', price: 350000 },
+  { code: 'DIFF', name: 'Differential Count', category: 'Haematology', price: 250000 },
+  { code: 'ESR', name: 'ESR', category: 'Haematology', price: 150000 },
+  { code: 'BGG', name: 'Blood Group & Genotype', category: 'Haematology', price: 250000 },
+  { code: 'MALRDT', name: 'Malaria RDT', category: 'Haematology', price: 150000 },
+  { code: 'MALMIC', name: 'Malaria Microscopy', category: 'Haematology', price: 150000 },
+  { code: 'LFT', name: 'Liver Function Test', category: 'Biochemistry', price: 500000 },
+  { code: 'RFT', name: 'Electrolytes & Urea (E&U)', category: 'Biochemistry', price: 500000 },
+  { code: 'LIPID', name: 'Lipid Profile', category: 'Biochemistry', price: 450000 },
+  { code: 'FBG', name: 'Fasting Blood Glucose', category: 'Biochemistry', price: 120000 },
+  { code: 'HBA1C', name: 'HbA1c', category: 'Biochemistry', price: 400000 },
+  { code: 'CNS', name: 'Culture & Sensitivity (M/C/S)', category: 'Microbiology', price: 500000 },
+  { code: 'WIDAL', name: 'Widal Test', category: 'Microbiology', price: 200000 },
+  { code: 'VDRL', name: 'VDRL / Syphilis', category: 'Serology', price: 200000 },
+  { code: 'HBSAG', name: 'Hepatitis B (HBsAg)', category: 'Serology', price: 200000 },
+  { code: 'HIV', name: 'HIV 1 & 2 Screening', category: 'Serology', price: 200000 },
+  { code: 'URINAL', name: 'Urinalysis', category: 'Urinalysis', price: 150000 },
+  { code: 'URMIC', name: 'Urine Microscopy', category: 'Urinalysis', price: 150000 },
+  { code: 'TSH', name: 'TSH', category: 'Hormones', price: 500000 },
+  { code: 'FT3', name: 'FT3', category: 'Hormones', price: 500000 },
+  { code: 'FT4', name: 'FT4', category: 'Hormones', price: 500000 },
+  { code: 'PSA', name: 'PSA', category: 'Hormones', price: 500000 },
+  { code: 'PREG', name: 'Pregnancy Test', category: 'Hormones', price: 150000 },
+  { code: 'STOOL', name: 'Stool Microscopy', category: 'Other', price: 150000 }
+]
+
+/** Builds catalog test + parameter rows (fresh UUIDs) for a lab from the CATALOG. */
+export function buildCatalogTests(labId: string): { tests: CatalogTest[]; params: CatalogParameter[] } {
   const tests: CatalogTest[] = []
   const params: CatalogParameter[] = []
   for (const t of CATALOG) {
-    const testId = `cat-${t.code}`
+    const testId = crypto.randomUUID()
     tests.push({ id: testId, lab_id: labId, code: t.code, name: t.name, category: t.category, specimen: t.specimen, result_type: t.type, active: true })
     ;(t.params ?? []).forEach((p, i) => {
       params.push({
-        id: `${testId}-${p.key}`, test_id: testId, key: p.key, name: p.name, unit: p.unit ?? null,
+        id: crypto.randomUUID(), test_id: testId, key: p.key, name: p.name, unit: p.unit ?? null,
         ref_low: p.low ?? null, ref_high: p.high ?? null,
         ref_operator: p.op ?? (p.low != null || p.high != null ? 'between' : null),
         qualitative_options: p.opts ?? null, sex: null,
@@ -112,8 +152,61 @@ export async function seedCatalog(labId: string): Promise<void> {
       })
     })
   }
+  return { tests, params }
+}
+
+/** Builds price-list rows (fresh UUIDs) for a lab. HMO 80% / corporate 90% of standard. */
+export function buildPriceList(labId: string): PriceListItem[] {
+  const now = new Date().toISOString()
+  return DEFAULT_PRICE_LIST.map((t) => ({
+    id: crypto.randomUUID(),
+    lab_id: labId,
+    test_code: t.code,
+    test_name: t.name,
+    category: t.category,
+    standard_price: t.price,
+    hmo_price: Math.round(t.price * 0.8),
+    corporate_price: Math.round(t.price * 0.9),
+    is_active: true,
+    created_at: now,
+    updated_at: now
+  }))
+}
+
+/** Dev/offline seed: writes the catalog straight to Dexie (no sync). */
+export async function seedCatalog(labId: string): Promise<void> {
+  if ((await db.catalog_tests.count()) > 0) return
+  const { tests, params } = buildCatalogTests(labId)
   await db.catalog_tests.bulkPut(tests)
   await db.catalog_parameters.bulkPut(params)
+}
+
+export interface ProvisionResult {
+  skipped: boolean
+  tests: number
+  params: number
+  prices: number
+}
+
+/**
+ * Provisions the default test catalog + price list for a lab through the
+ * repository layer, so the rows sync to Supabase (owner/manager RLS permits the
+ * writes). Idempotent: does nothing if the lab already has catalog tests.
+ * Tests are written before their parameters so the FK is satisfied on sync
+ * (the outbox is FIFO).
+ */
+export async function provisionLabCatalog(labId: string): Promise<ProvisionResult> {
+  const existing = await db.catalog_tests.where('lab_id').equals(labId).count()
+  if (existing > 0) return { skipped: true, tests: 0, params: 0, prices: 0 }
+
+  const { tests, params } = buildCatalogTests(labId)
+  const prices = buildPriceList(labId)
+
+  for (const test of tests) await catalogTestRepo.create(test)
+  for (const param of params) await catalogParamRepo.create(param)
+  for (const price of prices) await priceRepo.create(price)
+
+  return { skipped: false, tests: tests.length, params: params.length, prices: prices.length }
 }
 
 /** Find a catalog test by exact name (as stored on a result) or by code. */

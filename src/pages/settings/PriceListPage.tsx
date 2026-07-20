@@ -1,16 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { priceRepo } from '@/lib/repositories'
-import { Plus } from 'lucide-react'
+import { Plus, Sparkles } from 'lucide-react'
 import { Button, Input, Modal, useToast } from '@/components/ui'
 import { useAuthContext } from '@/context/AuthContext'
+import { provisionLabCatalog } from '@/lib/catalog'
 import { formatNaira } from '@/lib/formatters'
-import { offlineWrite } from '@/lib/offlineWrite'
+import { offlineSuccessMessage, offlineWrite } from '@/lib/offlineWrite'
 import { friendlyError } from '@/lib/supabaseQuery'
 import type { PriceListItem } from '@/types'
 
 const CATEGORIES = [
-  'Haematology', 'Biochemistry', 'Microbiology',
-  'Urinalysis', 'Hormones', 'Other'
+  'Haematology', 'Biochemistry', 'Serology', 'Microbiology',
+  'Urinalysis', 'Hormones', 'Histopathology', 'Imaging', 'Other'
 ]
 
 // Inline-editable price cell
@@ -71,8 +72,10 @@ function PriceCell({
 
 export function PriceListPage() {
   const toast = useToast()
-  const { labId } = useAuthContext()
+  const { labId, role } = useAuthContext()
+  const canConfigure = role === 'owner' || role === 'manager'
   const [items, setItems] = useState<PriceListItem[]>([])
+  const [provisioning, setProvisioning] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const [newCategory, setNewCategory] = useState(CATEGORIES[0])
@@ -91,6 +94,26 @@ export function PriceListPage() {
     const message = await offlineWrite('price_list', 'UPDATE', updated, item, `${item.test_name} price updated`)
     setItems((prev) => prev.map((p) => (p.id === item.id ? updated : p)))
     toast.push(message)
+  }
+
+  async function handleProvision() {
+    if (!labId) return
+    setProvisioning(true)
+    try {
+      const result = await provisionLabCatalog(labId)
+      if (result.skipped) {
+        toast.push('This lab already has a test catalog.')
+      } else {
+        toast.push(
+          offlineSuccessMessage(`Loaded ${result.tests} tests, ${result.params} parameters and ${result.prices} prices`)
+        )
+      }
+      setItems(await priceRepo.listByLab(labId))
+    } catch (err) {
+      toast.push(friendlyError(err), 'error')
+    } finally {
+      setProvisioning(false)
+    }
   }
 
   async function handleAddTest() {
@@ -144,17 +167,30 @@ export function PriceListPage() {
           <h2>Price List</h2>
           <p className="list-subtitle">Click any price to edit inline — saves automatically</p>
         </div>
-        <Button variant="primary" icon={<Plus size={16} />} onClick={() => setAddOpen(true)}>
-          Add custom test
-        </Button>
+        {canConfigure && items.length > 0 ? (
+          <Button variant="primary" icon={<Plus size={16} />} onClick={() => setAddOpen(true)}>
+            Add custom test
+          </Button>
+        ) : null}
       </header>
 
       {items.length === 0 ? (
         <div className="detail-card" style={{ textAlign: 'center', padding: 40 }}>
-          <p style={{ color: 'var(--color-text-secondary)' }}>No tests in price list yet.</p>
-          <p style={{ fontSize: 13, color: 'var(--color-text-tertiary)', marginTop: 8 }}>
-            Add tests above, or seed from Settings → Sync.
-          </p>
+          <p style={{ color: 'var(--color-text-secondary)' }}>No tests in the catalog yet.</p>
+          {canConfigure ? (
+            <>
+              <p style={{ fontSize: 13, color: 'var(--color-text-tertiary)', marginTop: 8, marginBottom: 16 }}>
+                Load the default menu (17 tests with reference ranges and starting prices), then adjust to match your lab.
+              </p>
+              <Button variant="primary" icon={<Sparkles size={16} />} loading={provisioning} onClick={() => void handleProvision()}>
+                Load default test catalog
+              </Button>
+            </>
+          ) : (
+            <p style={{ fontSize: 13, color: 'var(--color-text-tertiary)', marginTop: 8 }}>
+              Ask an owner or manager to load the test catalog.
+            </p>
+          )}
         </div>
       ) : (
         byCategory.map(({ cat, rows }) => (
