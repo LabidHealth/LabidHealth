@@ -1,143 +1,129 @@
 import React, { useEffect, useState } from 'react'
-import { labRepo, patientRepo, resultRepo, sampleRepo, staffRepo } from '@/lib/repositories'
-import { MessageSquare, Phone, AlertTriangle } from 'lucide-react'
+import { invoiceRepo, labRepo, patientRepo, resultRepo, sampleRepo, staffRepo } from '@/lib/repositories'
+import { MessageSquare, AlertTriangle } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Badge, Button, EmptyState, useToast } from '@/components/ui'
 import { RoleGuard } from '@/components/shared/RoleGuard'
 import { useAuthContext } from '@/context/AuthContext'
-import { formatDateTime, formatTimeAgo } from '@/lib/formatters'
-import { getDeliveryStatus, resendNotification } from '@/lib/notifications'
+import { formatDateTime, formatNaira, formatTimeAgo } from '@/lib/formatters'
+import { getDeliveryStatus } from '@/lib/notifications'
+import { deliverViaWhatsApp, isDeliveryHeld } from '@/lib/delivery'
 import { offlineSuccessMessage } from '@/lib/offlineWrite'
 import { friendlyError } from '@/lib/supabaseQuery'
-import { supabase } from '@/lib/supabase'
+import { pull } from '@/lib/pull'
 import { getCatalogTest, refText } from '@/lib/catalog'
-import type { CatalogParameter, CatalogTest, Notification, Patient, Result, ResultParameterStatus, Sample } from '@/types'
+import type { CatalogParameter, CatalogTest, Invoice, Lab, Notification, Patient, Result, ResultParameterStatus, Sample } from '@/types'
 
-function DeliveryStatusSection({
-  resultId,
-  pdfUrl
+function DeliverySection({
+  result,
+  patient,
+  invoice,
+  testName,
+  labName
 }: {
-  resultId: string
-  pdfUrl: string | null
+  result: Result
+  patient: Patient | null
+  invoice: Invoice | null
+  testName: string
+  labName: string
 }) {
   const toast = useToast()
-  const [notification, setNotification] = useState<Notification | null>(null)
-  const [resending, setResending] = useState(false)
+  // undefined = still loading; null = none yet; Notification = already delivered.
+  const [notification, setNotification] = useState<Notification | null | undefined>(undefined)
+  const [sending, setSending] = useState(false)
 
   useEffect(() => {
     let mounted = true
-
-    // Initial load
-    void getDeliveryStatus(resultId).then((n) => {
+    void (async () => {
+      if (navigator.onLine) await pull.notifications()
+      const n = await getDeliveryStatus(result.id)
       if (mounted) setNotification(n ?? null)
-    })
-
-    // Subscribe to notification changes via Supabase Realtime
-    const channel = supabase
-      .channel(`notification-${resultId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'notifications',
-          filter: `result_id=eq.${resultId}`
-        },
-        async () => {
-          if (!mounted) return
-          // Refresh from IndexedDB when Supabase syncs
-          const fresh = await getDeliveryStatus(resultId)
-          setNotification(fresh ?? null)
-        }
-      )
-      .subscribe()
-
+    })()
     return () => {
       mounted = false
-      supabase.removeChannel(channel)
     }
-  }, [resultId])
+  }, [result.id])
 
-  if (!notification) return null
+  const held = isDeliveryHeld(invoice)
 
-  const hoursOld = notification.sent_at
-    ? (Date.now() - new Date(notification.sent_at).getTime()) / 3_600_000
-    : null
-
-  const notOpened =
-    notification.sent_at !== null &&
-    notification.opened_at === null &&
-    hoursOld !== null &&
-    hoursOld > 24
-
-  const canResend =
-    notification.status === 'failed' ||
-    (notification.sent_at !== null && hoursOld !== null && hoursOld > 24)
-
-  async function handleResend() {
-    if (!notification) return
-    setResending(true)
+  // Both the first send and a resend mint a fresh secure link and open WhatsApp.
+  async function handleDeliver() {
+    if (!patient) {
+      toast.push('Patient record is missing.', 'error')
+      return
+    }
+    if (held) return
+    setSending(true)
     try {
-      const fresh = await resendNotification(notification, pdfUrl)
-      setNotification(fresh)
-      toast.push(offlineSuccessMessage('Notification resent'))
+      const { notification: n, waUrl } = await deliverViaWhatsApp({ result, patient, testName, labName })
+      setNotification(n)
+      window.open(waUrl, '_blank', 'noopener')
+      toast.push(offlineSuccessMessage('WhatsApp opened with the result link'))
     } catch (error) {
       toast.push(friendlyError(error), 'error')
     } finally {
-      setResending(false)
+      setSending(false)
     }
   }
 
-  function statusBadge(status: Notification['status']) {
-    const map: Record<Notification['status'], 'SUCCESS' | 'INFO' | 'WARNING' | 'CRITICAL'> = {
-      queued: 'INFO',
-      sent: 'INFO',
-      delivered: 'SUCCESS',
-      opened: 'SUCCESS',
-      failed: 'CRITICAL'
-    }
-    return map[status] ?? 'INFO'
+  if (notification === undefined) return null
+
+  // Not yet delivered → payment gate banner or the Send action.
+  if (!notification) {
+    return (
+      <article className="detail-card">
+        <h3>Deliver to patient</h3>
+        {held ? (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', color: 'var(--color-status-warning)' }}>
+            <AlertTriangle size={16} />
+            <div style={{ fontSize: 13 }}>
+              Delivery is held until payment is settled. Outstanding:{' '}
+              <strong>{formatNaira(invoice!.outstanding)}</strong>. Record the payment on the invoice to release it.
+            </div>
+          </div>
+        ) : (
+          <>
+            <p className="list-subtitle" style={{ marginTop: 0 }}>
+              Opens WhatsApp with a secure result link pre-filled to {patient?.phone ?? 'the patient'}.
+            </p>
+            <Button variant="primary" icon={<MessageSquare size={16} />} loading={sending} disabled={!patient} onClick={() => void handleDeliver()}>
+              Send via WhatsApp
+            </Button>
+          </>
+        )}
+      </article>
+    )
+  }
+
+  // Already delivered → status + resend.
+  const hoursOld = notification.sent_at ? (Date.now() - new Date(notification.sent_at).getTime()) / 3_600_000 : null
+  const notOpened = notification.sent_at !== null && notification.opened_at === null && hoursOld !== null && hoursOld > 24
+  const statusStyle: Record<Notification['status'], 'SUCCESS' | 'INFO' | 'WARNING' | 'CRITICAL'> = {
+    queued: 'INFO',
+    sent: 'INFO',
+    delivered: 'SUCCESS',
+    opened: 'SUCCESS',
+    failed: 'CRITICAL'
   }
 
   return (
     <article className="detail-card">
-      <h3>Delivery Status</h3>
+      <h3>Delivery status</h3>
       {notOpened ? (
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--color-status-warning)', marginBottom: 12 }}>
           <AlertTriangle size={16} />
-          <span style={{ fontSize: 13 }}>Patient has not opened result (sent {formatTimeAgo(notification.sent_at!)})</span>
+          <span style={{ fontSize: 13 }}>Patient has not opened the result (sent {formatTimeAgo(notification.sent_at!)})</span>
         </div>
       ) : null}
       <dl className="detail-list">
-        <div>
-          <dt>Channel</dt>
-          <dd style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            {notification.channel === 'whatsapp' ? <MessageSquare size={14} /> : <Phone size={14} />}
-            {notification.channel.toUpperCase()}
-          </dd>
-        </div>
-        <div>
-          <dt>Status</dt>
-          <dd><Badge status={statusBadge(notification.status)}>{notification.status}</Badge></dd>
-        </div>
-        {notification.sent_at ? (
-          <div><dt>Sent at</dt><dd>{formatDateTime(notification.sent_at)}</dd></div>
-        ) : null}
-        {notification.delivered_at ? (
-          <div><dt>Delivered at</dt><dd>{formatDateTime(notification.delivered_at)}</dd></div>
-        ) : null}
-        {notification.opened_at ? (
-          <div><dt>Opened at</dt><dd>{formatDateTime(notification.opened_at)}</dd></div>
-        ) : null}
-        {notification.failure_reason ? (
-          <div><dt>Failure reason</dt><dd style={{ color: 'var(--color-status-danger)' }}>{notification.failure_reason}</dd></div>
-        ) : null}
+        <div><dt>Channel</dt><dd style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MessageSquare size={14} /> WhatsApp</dd></div>
+        <div><dt>Status</dt><dd><Badge status={statusStyle[notification.status]}>{notification.status}</Badge></dd></div>
+        {notification.sent_at ? <div><dt>Sent</dt><dd>{formatDateTime(notification.sent_at)}</dd></div> : null}
+        {notification.opened_at ? <div><dt>Opened</dt><dd>{formatDateTime(notification.opened_at)}</dd></div> : null}
       </dl>
-      {canResend ? (
-        <Button variant="secondary" size="sm" loading={resending} onClick={() => void handleResend()}>
-          Resend to Patient
-        </Button>
-      ) : null}
+      <Button variant="secondary" size="sm" loading={sending} onClick={() => void handleDeliver()}>
+        Resend via WhatsApp
+      </Button>
     </article>
   )
 }
@@ -151,6 +137,8 @@ export function ResultDetailPage() {
   const [result, setResult] = useState<Result | null>(null)
   const [patient, setPatient] = useState<Patient | null>(null)
   const [sample, setSample] = useState<Sample | null>(null)
+  const [invoice, setInvoice] = useState<Invoice | null>(null)
+  const [lab, setLab] = useState<Lab | null>(null)
   const [catTest, setCatTest] = useState<CatalogTest | null>(null)
   const [catParams, setCatParams] = useState<CatalogParameter[]>([])
   const [generating, setGenerating] = useState(false)
@@ -172,6 +160,25 @@ export function ResultDetailPage() {
       setSample(sampleRecord ?? null)
       setCatTest(cat?.test ?? null)
       setCatParams(cat?.params ?? [])
+      // Lab (for the WhatsApp message + report). Pull if not cached locally.
+      let labRecord = await labRepo.get(record.lab_id)
+      if (!labRecord && navigator.onLine) {
+        await pull.labs()
+        labRecord = await labRepo.get(record.lab_id)
+      }
+      if (mounted) setLab(labRecord ?? null)
+
+      // The payment gate needs the invoice for this sample. Pull so a fresh
+      // device sees the current balance, then match by sample_id.
+      const findInvoice = async () => {
+        const invoices = await invoiceRepo.listByLabidRecent(record.labid)
+        return invoices.find((inv) => inv.sample_id === record.sample_id) ?? null
+      }
+      if (mounted) setInvoice(await findInvoice())
+      if (navigator.onLine) {
+        await pull.invoices()
+        if (mounted) setInvoice(await findInvoice())
+      }
     }
     void load()
     return () => { mounted = false }
@@ -349,8 +356,14 @@ export function ResultDetailPage() {
       </article>
 
       {/* Delivery status (only for approved results) */}
-      {result.status === 'approved' ? (
-        <DeliveryStatusSection resultId={result.id} pdfUrl={result.pdf_url ?? null} />
+      {result.status === 'approved' || result.status === 'amended' ? (
+        <DeliverySection
+          result={result}
+          patient={patient}
+          invoice={invoice}
+          testName={catTest?.name ?? result.test_type}
+          labName={lab?.name ?? ''}
+        />
       ) : null}
 
       {/* Action buttons */}
