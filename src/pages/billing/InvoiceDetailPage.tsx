@@ -7,9 +7,11 @@ import { formatNaira, formatDateTime } from '@/lib/formatters'
 import { offlineSuccessMessage } from '@/lib/offlineWrite'
 import { openAndPrintPdfBlob } from '@/lib/printPdf'
 import { friendlyError } from '@/lib/supabaseQuery'
+import { enabledPaymentMethods } from '@/lib/features'
 import type { Invoice, Lab, Patient, Payment, PaymentMethod } from '@/types'
 
-const PAYMENT_METHODS: PaymentMethod[] = ['cash', 'pos', 'bank_transfer', 'opay', 'palmpay']
+// What staff can newly select is config-driven (features.enabledPaymentMethods).
+// METHOD_LABELS still covers every method so historical payments render.
 const METHOD_LABELS: Record<PaymentMethod, string> = {
   cash: 'Cash',
   pos: 'POS',
@@ -37,7 +39,7 @@ export function InvoiceDetailPage() {
   const [lab, setLab] = useState<Lab | null>(null)
 
   const [amount, setAmount] = useState('')
-  const [method, setMethod] = useState<PaymentMethod>('cash')
+  const [method, setMethod] = useState<PaymentMethod>(enabledPaymentMethods[0])
   const [reference, setReference] = useState('')
   const [recording, setRecording] = useState(false)
   const [printing, setPrinting] = useState(false)
@@ -269,7 +271,7 @@ export function InvoiceDetailPage() {
               <div>
                 <label className="form-label" style={{ marginBottom: 8 }}>Payment method</label>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  {PAYMENT_METHODS.map((paymentMethod) => (
+                  {enabledPaymentMethods.map((paymentMethod) => (
                     <button
                       key={paymentMethod}
                       type="button"

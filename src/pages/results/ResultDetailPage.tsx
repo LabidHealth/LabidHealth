@@ -14,6 +14,45 @@ import { pull } from '@/lib/pull'
 import { getCatalogTest, refText } from '@/lib/catalog'
 import type { CatalogParameter, CatalogTest, Invoice, Lab, Notification, Patient, Result, ResultParameterStatus, Sample } from '@/types'
 
+const CHANNEL_LABEL: Record<Notification['channel'], string> = {
+  whatsapp: 'WhatsApp',
+  sms: 'SMS',
+  email: 'Email'
+}
+
+// Delivery progression from the signals we actually have: the row is created
+// once Sent; the patient opening the secure link (result-view) proves receipt,
+// so an open lights up both Delivered and Opened. A carrier-confirmed Delivered
+// ahead of the open would need a provider delivery receipt (not available with
+// wa.me click-to-send), and populates delivered_at when it is.
+function DeliveryTimeline({ notification }: { notification: Notification }) {
+  const deliveredAt = notification.delivered_at ?? notification.opened_at
+  const steps: Array<{ label: string; at: string | null | undefined }> = [
+    { label: 'Sent', at: notification.sent_at },
+    { label: 'Delivered', at: deliveredAt },
+    { label: 'Opened', at: notification.opened_at }
+  ]
+  return (
+    <div style={{ display: 'flex', gap: 4, margin: '4px 0 14px' }}>
+      {steps.map((step, i) => {
+        const done = Boolean(step.at)
+        const color = done ? 'var(--color-status-success)' : 'var(--color-text-secondary)'
+        return (
+          <div key={step.label} style={{ flex: 1, textAlign: 'center', opacity: done ? 1 : 0.5 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+              <div style={{ flex: 1, height: 2, background: i === 0 ? 'transparent' : color }} />
+              <div style={{ width: 10, height: 10, borderRadius: '50%', background: color, flexShrink: 0 }} />
+              <div style={{ flex: 1, height: 2, background: i === steps.length - 1 ? 'transparent' : (steps[i + 1].at ? 'var(--color-status-success)' : 'var(--color-text-secondary)') }} />
+            </div>
+            <div style={{ fontSize: 12, fontWeight: 600, marginTop: 4, color }}>{step.label}</div>
+            <div style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>{step.at ? formatTimeAgo(step.at) : '—'}</div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function DeliverySection({
   result,
   patient,
@@ -124,32 +163,23 @@ function DeliverySection({
     )
   }
 
-  // Already delivered → status + resend.
+  // Already delivered → timeline + resend.
   const hoursOld = notification.sent_at ? (Date.now() - new Date(notification.sent_at).getTime()) / 3_600_000 : null
   const notOpened = notification.sent_at !== null && notification.opened_at === null && hoursOld !== null && hoursOld > 24
-  const statusStyle: Record<Notification['status'], 'SUCCESS' | 'INFO' | 'WARNING' | 'CRITICAL'> = {
-    queued: 'INFO',
-    sent: 'INFO',
-    delivered: 'SUCCESS',
-    opened: 'SUCCESS',
-    failed: 'CRITICAL'
-  }
 
   return (
     <article className="detail-card">
       <h3>Delivery status</h3>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 8 }}>
+        <MessageSquare size={14} /> Sent via {CHANNEL_LABEL[notification.channel]}
+      </div>
+      <DeliveryTimeline notification={notification} />
       {notOpened ? (
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--color-status-warning)', marginBottom: 12 }}>
           <AlertTriangle size={16} />
           <span style={{ fontSize: 13 }}>Patient has not opened the result (sent {formatTimeAgo(notification.sent_at!)})</span>
         </div>
       ) : null}
-      <dl className="detail-list">
-        <div><dt>Channel</dt><dd style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MessageSquare size={14} /> WhatsApp</dd></div>
-        <div><dt>Status</dt><dd><Badge status={statusStyle[notification.status]}>{notification.status}</Badge></dd></div>
-        {notification.sent_at ? <div><dt>Sent</dt><dd>{formatDateTime(notification.sent_at)}</dd></div> : null}
-        {notification.opened_at ? <div><dt>Opened</dt><dd>{formatDateTime(notification.opened_at)}</dd></div> : null}
-      </dl>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <Button variant="secondary" size="sm" loading={sending} onClick={() => void handleDeliver()}>
           Resend via WhatsApp

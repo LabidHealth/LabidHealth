@@ -18,3 +18,11 @@ export type FeatureFlag = keyof typeof features
 export function isEnabled(flag: FeatureFlag): boolean {
   return features[flag]
 }
+
+/**
+ * Payment methods this lab accepts, in display order. Per-lab config
+ * (mvp-spec.md M4 / Prompt 3.3): the wedge lab takes Cash, POS and bank
+ * Transfer only. Historical payments recorded under other methods still render
+ * (see METHOD_LABELS) — this list only governs what staff can newly select.
+ */
+export const enabledPaymentMethods = ['cash', 'pos', 'bank_transfer'] as const
