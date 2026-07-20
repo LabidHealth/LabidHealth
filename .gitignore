@@ -9,3 +9,6 @@ yarn.lock
 package-lock.json
 /.idea
 .vscode/
+
+# Supabase CLI local working dir
+supabase/.temp/
